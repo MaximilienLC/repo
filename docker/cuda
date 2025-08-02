@@ -1,0 +1,29 @@
+# ~ CUDA + cuDNN on Ubuntu ~ #
+FROM nvcr.io/nvidia/cuda:12.6.3-cudnn-devel-ubuntu24.04
+# Moves Python cache file creation to a different folder
+ENV PYTHONPYCACHEPREFIX=/.cache/python/
+# Install system packages
+RUN apt update && apt install -y \
+    # For git pip install
+    git \
+    # Python
+    python3-pip \
+    python-is-python3 \
+    # Java to build our fork of Hydra
+    default-jre \
+    # Audio libraries
+    ffmpeg \
+    sox \
+    libavdevice-dev \
+    # Required by soundfile
+    libffi8 \
+    # Required for uv
+    curl \
+    # Clean up
+    && rm -rf /var/lib/apt/lists/*
+# Feed `pyproject.toml` to the build context
+ADD pyproject.toml /repo/pyproject.toml
+# Install Python dependencies
+RUN pip install uv==0.8.4 --break-system-packages \
+    && uv pip install --break-system-packages --system --no-cache-dir -e /repo[cuda,core,dev,docs,nb,fmri,audio,tensor,hpo,rl,dl,dl_utils,logging.misc] --extra-index-url https://download.pytorch.org/whl/cu126  --index-strategy unsafe-best-match \
+    && uv pip install --break-system-packages --system --no-cache-dir --no-build-isolation git+https://github.com/state-spaces/mamba.git@4a8a2a2ac9a1ed4aee2edb9207f41421ca11c5a4 git+https://github.com/Dao-AILab/causal-conv1d.git@e87a46b568fbb82a593c84a8a4e7e133fbbf2953

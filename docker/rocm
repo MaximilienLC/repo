@@ -1,0 +1,39 @@
+# ~ ROCm + PyTorch on Ubuntu ~ #
+FROM rocm/pytorch:rocm6.4.1_ubuntu24.04_py3.12_pytorch_release_2.7.1
+# Moves Python cache file creation to a different folder
+ENV PYTHONPYCACHEPREFIX=/.cache/python/
+# Install system packages
+RUN apt update && apt install -y \
+    # For git pip install
+    git \
+    # Python
+    python3-pip \
+    python-is-python3 \
+    # Java to build our fork of Hydra
+    default-jre \
+    # Audio libraries
+    ffmpeg \
+    sox \
+    libavdevice-dev \
+    # Required by soundfile
+    libffi8 \
+    # To fetch missing torch packages
+    wget \
+    # Clean up
+    && rm -rf /var/lib/apt/lists/*
+# Feed `pyproject.toml` to the build context
+ADD pyproject.toml /repo/pyproject.toml
+# Sinstall `torchaudio` and `pytorch_triton` wheels
+RUN wget https://repo.radeon.com/rocm/manylinux/rocm-rel-6.4.1/pytorch_triton_rocm-3.3.1%2Brocm6.4.1.git40e90a0a-cp312-cp312-linux_x86_64.whl -O pytorch_triton.whl \
+    && wget https://repo.radeon.com/rocm/manylinux/rocm-rel-6.4.1/torchaudio-2.7.1%2Brocm6.4.1.git95c61b41-cp312-cp312-linux_x86_64.whl -O torchaudio.whl \
+    && pip install --no-cache-dir ./torchaudio.whl ./pytorch_triton.whl \
+    && rm -f ./torchaudio.whl ./pytorch_triton.whl
+# Install rest of Python dependencies (except `mamba` and `causal-conv1d`)
+RUN pip install --no-cache-dir -e /repo[core,dev,docs,nb,fmri,audio,tensor,hpo,rl,dl,dl_utils,logging.misc]
+# While the wheels for `mamba` and `causal-conv1d` are pre-built for CUDA,
+# they are not for ROCm. Since we need the GPU to be visible to build them,
+# we need to perform this operation post-build. Example:
+# 1. docker run -it --cap-add=SYS_PTRACE  --security-opt seccomp=unconfined --ipc=host --shm-size 8G --device=/dev/dxg -v /usr/lib/wsl/lib/libdxcore.so:/usr/lib/libdxcore.so -v /opt/rocm/lib/libhsa-runtime64.so.1:/opt/rocm/lib/libhsa-runtime64.so.1  -w /mnt/c/Users/Max/Dropbox/ai_repo -v /mnt/c/Users/Max/Dropbox/ai_repo:/mnt/c/Users/Max/Dropbox/ai_repo <image_name>
+# 2. pip install --no-cache-dir --no-build-isolation git+https://github.com/state-spaces/mamba.git@4a8a2a2ac9a1ed4aee2edb9207f41421ca11c5a4 git+https://github.com/Dao-AILab/causal-conv1d.git@e87a46b568fbb82a593c84a8a4e7e133fbbf2953
+# 3. Ctrl+D
+# 4. docker commit <container_id> <image_name>
