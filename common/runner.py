@@ -4,8 +4,6 @@ from typing import Any, final
 from hydra_zen import ZenStore, zen
 from omegaconf import OmegaConf
 
-from common.utils.comet import login_comet
-
 from .config import BaseHydraConfig
 from .utils.hydra_zen import destructure
 from .utils.runner import (
@@ -38,7 +36,6 @@ class BaseLogicRunner(ABC):
     @classmethod
     def run_logic(cls: type["BaseLogicRunner"]) -> None:
         OmegaConf.register_new_resolver("eval", eval)
-        login_comet()
         cls.handle_configs()
         zen(cls.run_sublogic).hydra_main(
             config_path=get_absolute_project_path(),
