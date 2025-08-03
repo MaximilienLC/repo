@@ -1,0 +1,69 @@
+on:
+  push:
+    branches: [main]
+
+jobs:
+  docker-build-cpu:
+    runs-on: ginkgo
+    steps:
+      - name: Checkout the GitHub repo
+        uses: actions/checkout@v4
+      - name: Build the tentative Docker image
+        run: docker build -t maximilienlc/repo:cpu -f docker/cpu .
+  docker-build-cuda:
+    runs-on: ginkgo
+    steps:
+      - name: Checkout the GitHub repo
+        uses: actions/checkout@v4
+      - name: Build the tentative Docker image
+        run: docker build -t maximilienlc/repo:cuda -f docker/cuda .
+  docker-build-rocm:
+    runs-on: desktop
+    continue-on-error: true
+    steps:
+      - name: Checkout the GitHub repo
+        uses: actions/checkout@v4
+      - name: Build the tentative Docker image
+        run: >
+          podman build --cap-add=SYS_PTRACE --security-opt seccomp=unconfined
+          --ipc=host --device=/dev/dxg
+          -v /usr/lib/wsl/lib/libdxcore.so:/usr/lib/libdxcore.so:ro
+          -v /opt/rocm/lib/libhsa-runtime64.so.1:/opt/rocm/lib/libhsa-runtime64.so.1:ro
+          -t maximilienlc/repo:rocm -f docker/rocm .
+  docker-push-cpu:
+    needs: docker-build-cpu
+    runs-on: ginkgo
+    steps:
+      - name: Push the tentative Docker image
+        run: docker push maximilienlc/repo:cpu
+  docker-push-cuda:
+    needs: docker-build-cuda
+    runs-on: ginkgo
+    steps:
+      - name: Push the tentative Docker image
+        run: docker push maximilienlc/repo:cuda
+  docker-push-rocm:
+    needs: docker-build-rocm
+    runs-on: desktop
+    continue-on-error: true
+    steps:
+      - name: Push the tentative Docker image
+        run: docker push maximilienlc/repo:rocm
+  sphinx-build:
+    needs: docker-build-cpu
+    runs-on: ginkgo
+    steps:
+      - name: Checkout the GitHub repo
+        uses: actions/checkout@v4
+      - name: Build the documentation with Sphinx
+        run: >
+          docker run --rm -v ${PWD}:${PWD} -w ${PWD} maximilienlc/repo:cpu
+          sphinx-build -b html ./docs/ ./docs/build/
+      - name: Deploy the documentation
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./docs/build/
+      - name: Cleanup
+        run: >
+          find ${HOME} -name "actions_github_pages_*" -exec rm -rf {} +
