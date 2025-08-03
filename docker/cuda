@@ -20,7 +20,8 @@ RUN apt update && apt install -y \
 # Feed `pyproject.toml` to the build context
 ADD pyproject.toml /repo/pyproject.toml
 # Install Python dependencies
-RUN pip install --no-cache-dir --break-system-packages -e /repo[all] \
+RUN pip install --no-cache-dir --break-system-packages -e /repo[all] \ \
+    && pip uninstall repo -y \
     && pip install --no-cache-dir --break-system-packages --no-build-isolation \
         git+https://github.com/state-spaces/mamba.git@e0761ece1db07e0949dd88b4f4cd440420a19fd9 \
         git+https://github.com/Dao-AILab/causal-conv1d.git@69e6dadc28b169a4c49cb86b586f64ee90242c70

@@ -1,0 +1,56 @@
+{
+    "image": "docker.io/maximilienlc/repo:cpu",
+    "customizations": {
+      "vscode": {
+        "extensions": [
+          "ms-python.python",
+          "ms-python.black-formatter",
+          "charliermarsh.ruff",
+          "lextudio.restructuredtext@189.3.0",
+          "fnando.linter",
+          "tamasfe.even-better-toml",
+          "ms-toolsai.jupyter",
+          "matangover.mypy"
+        ],
+        "settings": {
+          "black-formatter.args": [
+              "--config=pyproject.toml"
+          ],
+          "esbonio.sphinx.buildDir": "${workspaceFolder}/docs/_build/html",
+          "esbonio.sphinx.confDir": "${workspaceFolder}/docs/",
+          "esbonio.server.hideSphinxOutput": true,
+          "esbonio.server.pythonPath": "/usr/bin/python",
+          "esbonio.sphinx.srcDir": "${workspaceFolder}/docs/",
+          "files.insertFinalNewline": true,
+          "files.trimTrailingWhitespace": true,
+          "git.allowNoVerifyCommit": true,
+          "mypy.configFile": "pyproject.toml",
+          "notebook.formatOnSave.enabled": true,
+          "notebook.codeActionsOnSave": {
+            "notebook.source.organizeImports": "explicit"
+          },
+          "python.analysis.ignore": [
+              "/**"
+          ],
+          "restructuredtext.linter.doc8.executablePath": "/usr/local/bin/doc8",
+          "restructuredtext.preview.sphinx.disabled": true,
+          "restructuredtext.syntaxHighlighting.disabled": true,
+          "ruff.lint.arg": [
+              "--config=pyproject.toml"
+          ],
+          "[python]": {
+              "editor.defaultFormatter": "ms-python.black-formatter",
+              "editor.formatOnSave": true,
+              "editor.codeActionsOnSave": {
+                  "source.organizeImports": "explicit"
+              }
+          }
+        }
+      }
+    },
+    "containerEnv": {
+      "PYTHONPATH": "/workspaces/repo",
+      "AI_REPO_PATH": "/workspaces/repo"
+    },
+    "postAttachCommand": "pre-commit install"
+  }

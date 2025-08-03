@@ -1,9 +1,6 @@
 [tool.setuptools.packages.find]
 include = ["repo"]
 
-[tool.uv]
-package = false
-
 [project]
 name = "repo"
 authors = [{ name = "Maximilien Le Cleï", email = "github.laborer138@passmail.net" }]
@@ -88,7 +85,6 @@ dl_utils = [
     "peft==0.16.0", # Fine-tuning
 ]
 logging = [
-    "wandb==0.21.0",
     "comet-ml==3.50.0",
 ]
 misc = [

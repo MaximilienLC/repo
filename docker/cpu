@@ -21,4 +21,5 @@ RUN apt update && apt install -y \
 ADD pyproject.toml /repo/pyproject.toml
 # Install Python dependencies
 RUN pip install --no-cache-dir --break-system-packages torch==2.7.1 torchvision==0.22.1 torchaudio==2.7.1 --index-url https://download.pytorch.org/whl/cpu \
-    && pip install --no-cache-dir --break-system-packages -e /repo[all]
+    && pip install --no-cache-dir --break-system-packages -e /repo[all] \
+    && pip uninstall repo -y

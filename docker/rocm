@@ -27,6 +27,7 @@ RUN wget "https://repo.radeon.com/rocm/manylinux/rocm-rel-6.4.1/pytorch_triton_r
     && pip install --no-cache-dir pytorch_triton_rocm-3.3.1+rocm6.4.1.git40e90a0a-cp312-cp312-linux_x86_64.whl torchaudio-2.7.1+rocm6.4.1.git95c61b41-cp312-cp312-linux_x86_64.whl \
     && rm -f pytorch_triton_rocm-3.3.1+rocm6.4.1.git40e90a0a-cp312-cp312-linux_x86_64.whl torchaudio-2.7.1+rocm6.4.1.git95c61b41-cp312-cp312-linux_x86_64.whl \
     && pip install --no-cache-dir --break-system-packages -e /repo[all] \
+    && pip uninstall repo -y \
     && pip install --no-cache-dir --break-system-packages --no-build-isolation \
         git+https://github.com/state-spaces/mamba.git@e0761ece1db07e0949dd88b4f4cd440420a19fd9 \
         git+https://github.com/Dao-AILab/causal-conv1d.git@69e6dadc28b169a4c49cb86b586f64ee90242c70
