@@ -29,16 +29,6 @@ jobs:
           -v /usr/lib/wsl/lib/libdxcore.so:/usr/lib/libdxcore.so:ro
           -v /opt/rocm/lib/libhsa-runtime64.so.1:/opt/rocm/lib/libhsa-runtime64.so.1:ro
           -t maximilienlc/repo:rocm_test -f docker/rocm .
-  sphinx-build:
-    needs: docker-build-cpu
-    runs-on: ginkgo
-    steps:
-      - name: Checkout the GitHub repo
-        uses: actions/checkout@v4
-      - name: Build the documentation with Sphinx
-        run: >
-          docker run --rm -v ${PWD}:${PWD} -w ${PWD} maximilienlc/repo:cpu_test
-          sphinx-build -b html ./docs/ ./docs/build/
   mypy:
     needs: docker-build-cpu
     runs-on: ginkgo
@@ -59,33 +49,3 @@ jobs:
         run: >
           docker run --rm -v ${PWD}:${PWD} -w ${PWD} maximilienlc/repo:cpu_test
           pytest common projects
-  classify_mnist-mlp_cpu:
-    needs: docker-build-cpu
-    runs-on: ginkgo
-    steps:
-      - name: Checkout the GitHub repo
-        uses: actions/checkout@v4
-      - name: Create WANDB_KEY.txt file
-        run: echo ${{ secrets.WANDB_KEY }} > ${PWD}/WANDB_KEY.txt
-      - name: Runs project=classify_mnist logic=mlp_cpu
-        run: >
-          docker run --privileged --gpus all --rm -e repo_PATH=${PWD}
-          -v ${PWD}:${PWD} -e PYTHONPATH=${PYTHONPATH}:${PWD}
-          -v /dev/shm:/dev/shm -w ${PWD} maximilienlc/repo:cpu_test
-          python -m projects.classify_mnist.train logic=mlp_cpu
-          logger.entity=maximilienlc
-  classify_mnist-mlp:
-    needs: docker-build-cuda
-    runs-on: ginkgo
-    steps:
-      - name: Checkout the GitHub repo
-        uses: actions/checkout@v4
-      - name: Create WANDB_KEY.txt file
-        run: echo ${{ secrets.WANDB_KEY }} > ${PWD}/WANDB_KEY.txt
-      - name: Runs project=classify_mnist logic=mlp
-        run: >
-          docker run --privileged --gpus all --rm -e repo_PATH=${PWD}
-          -v ${PWD}:${PWD} -e PYTHONPATH=${PYTHONPATH}:${PWD}
-          -v /dev/shm:/dev/shm -w ${PWD} maximilienlc/repo:cuda_test
-          python -m projects.classify_mnist.train logic=mlp
-          logger.entity=maximilienlc

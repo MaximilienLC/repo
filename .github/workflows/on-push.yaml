@@ -49,21 +49,3 @@ jobs:
     steps:
       - name: Push the tentative Docker image
         run: docker push maximilienlc/repo:rocm
-  sphinx-build:
-    needs: docker-build-cpu
-    runs-on: ginkgo
-    steps:
-      - name: Checkout the GitHub repo
-        uses: actions/checkout@v4
-      - name: Build the documentation with Sphinx
-        run: >
-          docker run --rm -v ${PWD}:${PWD} -w ${PWD} maximilienlc/repo:cpu
-          sphinx-build -b html ./docs/ ./docs/build/
-      - name: Deploy the documentation
-        uses: peaceiris/actions-gh-pages@v4
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./docs/build/
-      - name: Cleanup
-        run: >
-          find ${HOME} -name "actions_github_pages_*" -exec rm -rf {} +
