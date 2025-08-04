@@ -5,6 +5,7 @@ from hydra_zen import ZenStore, zen
 from omegaconf import OmegaConf
 
 from .config import BaseHydraConfig
+from .store import store_launcher_configs
 from .utils.hydra_zen import destructure
 from .utils.runner import (
     get_absolute_project_path,
@@ -19,7 +20,7 @@ class BaseLogicRunner(ABC):
 
     @final
     @classmethod
-    def handle_configs(cls: type["BaseLogicRunner"]) -> None:
+    def process_configs(cls: type["BaseLogicRunner"]) -> None:
         store = ZenStore()
         store(cls.hydra_config, name="config", group="hydra")
         store({"project": get_project_name()}, name="project")
@@ -36,7 +37,7 @@ class BaseLogicRunner(ABC):
     @classmethod
     def run_logic(cls: type["BaseLogicRunner"]) -> None:
         OmegaConf.register_new_resolver("eval", eval)
-        cls.handle_configs()
+        cls.process_configs()
         zen(cls.run_sublogic).hydra_main(
             config_path=get_absolute_project_path(),
             config_name="config",
@@ -44,11 +45,8 @@ class BaseLogicRunner(ABC):
         )
 
     @classmethod
-    @abstractmethod
-    def store_configs(
-        cls: type["BaseLogicRunner"],
-        store: ZenStore,
-    ) -> None: ...
+    def store_configs(cls: type["BaseLogicRunner"], store: ZenStore) -> None:
+        store_launcher_configs(store)
 
     @staticmethod
     @abstractmethod
