@@ -52,5 +52,7 @@
       "PYTHONPATH": "/workspaces/repo",
       "AI_REPO_PATH": "/workspaces/repo"
     },
+    "remoteUser": "root",
+    "postCreateCommand": "chown -R 1000:1000 /workspaces/repo",
     "postAttachCommand": "pre-commit install"
   }

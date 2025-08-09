@@ -2,7 +2,7 @@
 
 This directory is meant to host methods that I have came up with.
 
-All methods rest upon a 50% truncation selection genetic algorithm.
+All methods rest upon a 50% truncation selection genetic algorithm with no crossovers.
 
 ## Agent roles
 
@@ -35,5 +35,12 @@ Agents receive one of two forms of input values:
 
 All rank 1+ tensors ought to be processed in pytorch, with all matrix operations being performed on the select GPUs.
 
+# Instructions
 
+Have
+```
+# ruff: noqa  # noqa: PGH004
+# type: ignore
+```
+as python file header
 

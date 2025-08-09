@@ -150,6 +150,9 @@ ignore = [
               # Move third-party import {} into a type-checking block
               # https://docs.astral.sh/ruff/rules/typing-only-third-party-import/
               # Disabled as we use Beartype for dynamic type checking.
+    "PGH004", # `blanket-noqa`
+              # Use specific rule codes when using `noqa`
+              # https://docs.astral.sh/ruff/rules/blanket-noqa/
 ]
 
 
