@@ -1,24 +1,43 @@
+# ruff: noqa  # noqa: PGH004
+# type: ignore
 import torch
 import torch.nn as nn
 import numpy as np
 import random
 from torchrl.envs import GymEnv
 from tensordict import TensorDict
+from typing import Annotated
+from ..utils.beartype import greater_than
+from jaxtyping import Float32
+from torch import Tensor
+
 
 class SimpleMLP(nn.Module):
-    def __init__(self, input_size: int, hidden_size: int, output_size: int):
+    def __init__(
+        self,
+        input_size: Annotated[int, greater_than(0)],
+        hidden_size: Annotated[int, greater_than(0)],
+        output_size: Annotated[int, greater_than(0)],
+    ) -> None:
         super().__init__()
         self.network = nn.Sequential(
             nn.Linear(input_size, hidden_size),
             nn.ReLU(),
             nn.Linear(hidden_size, output_size),
-            nn.Tanh()
+            nn.Tanh(),
         )
-    
-    def forward(self, x):
+
+    def forward(
+        self, x: Float32[Tensor, " *batch"]
+    ) -> Float32[Tensor, " *batch"]:
         return self.network(x)
 
-def evaluate_individual(network, env, num_episodes=3):
+
+def evaluate_individual(
+    network: SimpleMLP,
+    env: GymEnv,
+    num_episodes: Annotated[int, greater_than(0)] = 3,
+) -> float:
     total_reward = 0.0
     for _ in range(num_episodes):
         obs = env.reset()
@@ -38,32 +57,46 @@ def evaluate_individual(network, env, num_episodes=3):
         total_reward += episode_reward
     return total_reward / num_episodes
 
+
 class GeneticAlgorithm:
-    def __init__(self, population_size, network_config, mutation_strength=0.01):
+    def __init__(
+        self,
+        population_size: Annotated[int, greater_than(0)],
+        network_config: tuple[
+            Annotated[int, greater_than(0)],
+            Annotated[int, greater_than(0)],
+            Annotated[int, greater_than(0)],
+        ],
+        mutation_strength: Annotated[float, greater_than(0)] = 0.01,
+    ) -> None:
         self.population_size = population_size
         self.input_size, self.hidden_size, self.output_size = network_config
         self.mutation_strength = mutation_strength
         self.population = []
         for _ in range(population_size):
-            network = SimpleMLP(self.input_size, self.hidden_size, self.output_size)
+            network = SimpleMLP(
+                self.input_size, self.hidden_size, self.output_size
+            )
             self.population.append(network)
 
-    def evaluate_population(self, env):
+    def evaluate_population(self, env: GymEnv) -> list[float]:
         fitnesses = []
         for individual in self.population:
             fitness = evaluate_individual(individual, env)
             fitnesses.append(fitness)
         return fitnesses
 
-    def mutate(self, individual):
-        mutated = SimpleMLP(self.input_size, self.hidden_size, self.output_size)
+    def mutate(self, individual: SimpleMLP) -> SimpleMLP:
+        mutated = SimpleMLP(
+            self.input_size, self.hidden_size, self.output_size
+        )
         mutated.load_state_dict(individual.state_dict())
         for param in mutated.parameters():
             noise = torch.randn_like(param) * self.mutation_strength
             param.data += noise
         return mutated
 
-    def evolve_generation(self, env):
+    def evolve_generation(self, env: GymEnv) -> float:
         fitnesses = self.evaluate_population(env)
         sorted_indices = np.argsort(fitnesses)[::-1]
         num_selected = self.population_size // 2
@@ -71,8 +104,11 @@ class GeneticAlgorithm:
         self.population = selected + selected
         return max(fitnesses)
 
-    def mutate_population(self):
-        self.population = [self.mutate(individual) for individual in self.population]
+    def mutate_population(self) -> None:
+        self.population = [
+            self.mutate(individual) for individual in self.population
+        ]
+
 
 if __name__ == "__main__":
     env = GymEnv("CartPole-v1")
@@ -81,7 +117,7 @@ if __name__ == "__main__":
     print(f"Observation spec: {env.observation_spec}")
     action_space = 2  # CartPole has 2 discrete actions
     ga = GeneticAlgorithm(20, (obs_space, 16, action_space))
-    
+
     for generation in range(51):
         best_fitness = ga.evolve_generation(env)
         ga.mutate_population()
