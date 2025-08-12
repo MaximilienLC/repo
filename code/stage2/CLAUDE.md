@@ -1,8 +1,16 @@
-# TODO
+# High-level design
 
-This directory is meant to host methods that I have came up with.
+## Introduction
 
-All methods rest upon a 50% truncation selection genetic algorithm with no crossovers.
+This directory is meant to host methods that I am developing.
+
+All methods rest upon a genetic algorithm with no crossovers and 50% truncation selection.
+
+I like to divide every iteration into three stages:
+
+- variation: agents are randomly mutated. If agents are mutators (explained below), then they ought to alter themselves afterwards.
+- evaluation: agents perform a given task and are assigned a fitness score.
+- selection: the agents with the top 50% fitness scores are selected and duplicated over the slots of the lower 50% scoring agents.
 
 ## Agent roles
 
@@ -14,8 +22,8 @@ There are three types of non-exclusive roles that agents in the population can p
 In simple optimization settings, population agents are only actors.
 In behaviour imitation settings, population agents are both actors and discriminators.
 
-When agents are not mutators, all mutations performed on agents are random.
-When agents are mutators, mutations performed on agents are both random and decided by themselves.
+When agents are not mutators, agents only change their architecture and parameters through random mutations.
+When agents are mutators, agents also pick out some changes to apply to themselves.
 
 ## Agents inner workings
 

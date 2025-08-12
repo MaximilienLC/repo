@@ -1,3 +1,5 @@
 .DS_Store
 projects/haptic_pred/
 data/
+.ipynb_checkpoints/
+.mypy_cache/
