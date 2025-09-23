@@ -10,7 +10,7 @@ This repository consistutes an attempt to bridge this gap.
 
 No one is better equipped to understand the human condition than people themselves. However energy allocated towards that understanding (e.g. therapists, philosophers, ...) looks to me in short supply.
 
-And while this could theoretically look to be a social societal challenge adressable independently of AI technology; it looks to me that AI technology is becoming so deeply embedded that putting it to the side could be an unnecessary slow-down in that pursuit. As a result, I hope to believe in a future where AI models, given more intricate human data and improved ways to model that data, become increasingly understanding.
+And while this could, theoretically, look to be a social societal challenge, adressable independently of AI technology; it looks to me that AI technology is becoming so deeply embedded that putting it to the side could be an unnecessary slow-down in that pursuit. As a result, I hope to believe in a future where AI models, given more intricate human data and improved ways to model that data, become increasingly understanding.
 
 ## Practical assumptions
 
