@@ -8,44 +8,40 @@ This repository consistutes our attempt to bridge this gap.
 
 ---
 
-No one is better equipped to understand the human condition than people themselves. However energy allocated towards that understanding (e.g. therapists, philosophers, regular people themselves ...) looks to us in short supply.
+No one is better equipped to understand the human condition than people themselves. However energy allocated towards that understanding - from therapists, philosophers, people themselves ... - looks to us in short supply. Indeed, human flourishing has, in recent history, not been the path of least resistance for societal progress and the fruits it bears.
 
-We understand that traditionally, such reality would rather be adressed through social means, with techonology playing a supporting role that only stretches as far as it minimally needs to.
+We understand that traditionally, such reality would rather be adressed through organic means, with techonology playing a supporting role that only stretches as far as it minimally needs to.
 
-However, technology appears to be becoming symbiotic with our social lives.
+However times are changing, and our relationship with technology looks increasingly symbiotic.
 
-We thus inquire about to what extent can technology pour back into bettering our social lives.
+In this codebase, we thus propose to research human flourishing assisting technology.
 
-We propose to work on researching how to 1) make AI models more understanding of the human condition, and more importantly 2) make AI models more understanding of why they should assist in this venture.
+We propose to work on researching how to 1) make AI models more understanding of the human condition, and perhaps more importantly 2) make AI models more understanding of why they should assist in this venture.
 
-We choose to research 
-The method that we choose to explore is
+## Roadmap
 
+1. Behaviour modeling
 
+"What I cannot create, I do not understand" - Richard Feynman
 
-We hope to believe that a future is possible where AI models,
+In order for an AI model to assist with the grand journey that is human flourishing, we believe it needs the deepest possible understanding of human behaviour; and we believe the best way to acquire this understanding is through its imitation.
 
-be preferable to be adressed 
-In this repository
-In order to
-And while this could, theoretically, look to be a social societal challenge, adressable independently of AI technology; it looks to us that AI technology is becoming so deeply embedded that putting it to the side could be an unnecessary slow-down in that pursuit. As a result, we hope to believe in a future where AI models, given more intricate human data and improved ways to model that data, become increasingly understanding.
+2. Integration
 
-## Practical assumptions
+Unprecedented value is currently being derived from ChatGPT-like models trained on internet textual data. This data represents the conversations that humanity has been having for the past decades. It is a gold mine of collective human interaction, knowledge and intelligence that has been made more portable.
 
-We believe that (in order of importance):
+We believe deeper understanding of societal and human flourishing to come through the succesful integration of both internet and human modeled components.
 
-- "What I cannot create, I do not understand" (Richard Feynman).
+3. Flourishing alignment
 
-    In order for an AI model to assist with human flourishing, it needs to both understand thefurther understand human behaviour, we believe it needs to be able to better model it. As such, human behaviour imitation is of central interest in this repository.
+Convincing ChatGPT-like models to act in a certain way is an art form in development. It currently constitutes in optimizing the model to be as likely as possible to say the "right" things. This optimization is of course not straightforward since the models are biased towards their underlying modeled internet discourse.
 
-- There is value to be found beyond deep learning.
+Regardless of whether this model alignment regime remains or converges towards more traditional human alignment, significant efforts need to be produced in order to understand the resulting behaviour and its basis.
 
-    While there is likely a ceiling in terms of how close can computational methods accurately model behaviour, we reckon that deep learning alone cannot reach that ceiling. Theoretically, deep learning is bounded to the space of differentiable functions. Practically, it is further narrowed due to various baked-in assumptions and unfavourable data regimes.
+We believe wisdom to be the most processed form of information, and we believe human wisdom to generally converge towards walking on a path to unconditional universal love.
 
-    Theoretically, we believe that the ceiling is reachable through a blend of every type of computational method that we have ever invented. Practically however, we believe evolutionary algorithms to be a good first fit to try and pair up with deep learning. Theoretically, these algorithms are only bounded to the space of functions with comparable outputs. However, information from the data does not flow as abundantly as deep learning methods, making them scale worse to compute.
+We thus need to probe the agent's wisdom, and see whether it converges to the same conclusion. If not, we need to work on a compromise.
 
-- There is value to be found beyond fixed neural network architecures.
+---
 
-    The world is dynamic yet AI models so far work best with static designs.
-
-    While the human brain capacity does not look to grow much past adulthood, it is adapts dynamically given experience through plasticity.
+For the sake of practicality, this repository currently only focuses on Step 1.
