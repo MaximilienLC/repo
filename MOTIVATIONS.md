@@ -8,9 +8,27 @@ This repository consistutes our attempt to bridge this gap.
 
 ---
 
-No one is better equipped to understand the human condition than people themselves. However energy allocated towards that understanding (e.g. therapists, philosophers, ...) looks to me in short supply.
+No one is better equipped to understand the human condition than people themselves. However energy allocated towards that understanding (e.g. therapists, philosophers, regular people themselves ...) looks to us in short supply.
 
-And while this could, theoretically, look to be a social societal challenge, adressable independently of AI technology; it looks to me that AI technology is becoming so deeply embedded that putting it to the side could be an unnecessary slow-down in that pursuit. As a result, we hope to believe in a future where AI models, given more intricate human data and improved ways to model that data, become increasingly understanding.
+We understand that traditionally, such reality would rather be adressed through social means, with techonology playing a supporting role that only stretches as far as it minimally needs to.
+
+However, technology appears to be becoming symbiotic with our social lives.
+
+We thus inquire about to what extent can technology pour back into bettering our social lives.
+
+We propose to work on researching how to 1) make AI models more understanding of the human condition, and more importantly 2) make AI models more understanding of why they should assist in this venture.
+
+We choose to research 
+The method that we choose to explore is
+
+
+
+We hope to believe that a future is possible where AI models,
+
+be preferable to be adressed 
+In this repository
+In order to
+And while this could, theoretically, look to be a social societal challenge, adressable independently of AI technology; it looks to us that AI technology is becoming so deeply embedded that putting it to the side could be an unnecessary slow-down in that pursuit. As a result, we hope to believe in a future where AI models, given more intricate human data and improved ways to model that data, become increasingly understanding.
 
 ## Practical assumptions
 
@@ -18,7 +36,7 @@ We believe that (in order of importance):
 
 - "What I cannot create, I do not understand" (Richard Feynman).
 
-    In order for an AI model to further understand human behaviour, we believe it needs to be able to better model it. As such, human behaviour imitation is of central interest in this repository.
+    In order for an AI model to assist with human flourishing, it needs to both understand thefurther understand human behaviour, we believe it needs to be able to better model it. As such, human behaviour imitation is of central interest in this repository.
 
 - There is value to be found beyond deep learning.
 
