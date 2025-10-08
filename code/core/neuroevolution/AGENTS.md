@@ -16,8 +16,7 @@ Every iteration of the algorithm is characterized by three stages:
 
 ### Implementation details
 
-For the sake of leveraging SIMT (Single Instruction, Multiple Threads) GPU computation more smoothly,
-everything about the population is represented in a tensor, with each agent information as one of its elements.
+Computations are applied on the population as a whole, with each agent component being one of its components.
 
 All three iteration stages are then ran on the population tensor all at once.
 
@@ -30,8 +29,6 @@ For a given algorithmic run, population agents can take up to three, non-exclusi
 - discriminators: compare the behaviour of other actors with some target behaviour.
 - mutators: observe their inner workings to decide which parts of themselves to update.
 
-There are
-
 In the simplest optimization setting, population agents are only actors. They optimize a hand-crafted metric.
 In adversarial behaviour imitation settings, population agents are both actors and discriminators.
 
@@ -40,7 +37,7 @@ When agents are mutators, agents also pick out some changes to apply to themselv
 
 ### Implementation details
 
-
+TODO
 
 ## Agent networks
 
@@ -56,6 +53,7 @@ We experiment with two modes:
 
 In practice, all networks in the populations are maintained in a large 
 
+TODO
 
 ## Agent inputs
 

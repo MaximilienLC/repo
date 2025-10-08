@@ -4,8 +4,7 @@
 
 ### High-level description
 
-This directory hosts 
-
+This directory hosts common core deep learning pieces. 
 
 ### Implementation details
 
