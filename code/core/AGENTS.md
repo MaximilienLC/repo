@@ -10,4 +10,4 @@ It is presently further subdivided into the two machine learning paradigms used 
 
 ## Implementation Details
 
-All numeral values (rank 1+ tensors) are processesd in PyTorch, with all operations being performed on the select GPUs.
+All numeral values (rank 1+ tensors) are processed in PyTorch, with all operations being performed on the select GPUs.
