@@ -1,31 +1,34 @@
 # Neural Networks of Dynamic Complexity
 
-## Overview
-
 Disclaimer
 ----------
 
-The words `node` and `neuron` are used interchangeably.
+The words `node` and `neuron` are used interchangeably in this document.
 
-Structure
----------
+## Table of Contents
 
-These networks have three types of neurons: input, hidden and output.
+1. Structure
+2. Modes
+3. Original structure
+4. Mutations
+5. Representation for computation
+6. Node computation
+7. Computation pipeline
+
+## 1. Structure
+
+The networks have three types of neurons: input, hidden and output.
 Input and output neurons have no biases.
 
-Modes
------
+## 2. Modes
 
-These networks either:
+The networks either:
 - transform signal from one space to another input space to and output space, or
 - remap signal from some output space back into  
 
-Original Structure
-------------------
+## 3. Original structure
 
 The network begins with one input node per value it inputs, one output node per value it outputs, and no hidden neurons.
-
-
 
 A network's original structure differs whether or not it is remapping some signal.
 
@@ -36,18 +39,14 @@ Since the first variation stage occurs before the first evaluation stage, the ne
 
 If not, the network starts with 
 
-Mutations
----------
+## 4. Mutations
 
 These networks are dynamic in structure: they contract and expand through two mutation types: `grow_node` and `prune_node`.
 
-Representation for computation
-------------------------------
+## 5. Representation for computation
 
 
-
-Computation
------------
+# 6. Node computation
 
 A node N performs a simple `tanh(wx+b)` with `x` being a vector concatenating outputs from the nodes that connect to node N (which includes node N itself).
 
@@ -63,7 +62,7 @@ start with no hidden neuron, and no connection between neurons.
 if mapping from deep learning model output space back into output space:
 start with no hidden neuron, and 
 
-## Computation pipeline
+## 7. Computation pipeline
 
 (All computations are batched over the entire population)
 
