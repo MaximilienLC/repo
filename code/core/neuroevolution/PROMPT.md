@@ -1,0 +1,1 @@
+Read @code/core/neuroevolution/MAIN.md. Implement a MVP where agents are only actors, have static architectures and optimize for total returns in CartPole. Do not investigate `amdsmi` warnings. Make sure the average fitness is improving. Absolutely make sure that no relevant specification is ignored.
