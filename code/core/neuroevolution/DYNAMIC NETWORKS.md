@@ -20,12 +20,6 @@ The words `node` and `neuron` are used interchangeably in this document.
 The networks have three types of neurons: input, hidden and output.
 Input and output neurons have no biases.
 
-## 2. Modes
-
-The networks either:
-- transform signal from one space to another input space to and output space, or
-- remap signal from some output space back into  
-
 ## 3. Original structure
 
 The network begins with one input node per value it inputs, one output node per value it outputs, and no hidden neurons.
