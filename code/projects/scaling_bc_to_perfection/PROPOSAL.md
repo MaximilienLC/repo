@@ -1,12 +1,10 @@
-# Scaling Behaviour Cloning to Perfection
-
-## Project Proposal
+# Project Proposal
 
 In this project, we aim to run scaling law analyses — investigations into how key performance metrics evolve as variables like dataset size or model capacity increase — in behaviour cloning tasks.
 
 More specifically, we aim to perform these analyses on metrics that quantify perfection, i.e. that can saturate. This is somewhat in contrast with typical metrics in the scaling law literature — such as perplexity — that generally do not saturate.
 
-We wish to do so in order to closely observe behaviour at the edge of saturation. Indeed, we hypothesize that various properties of gradient-based methods (relationship with data regime, differentiability constraint, etc) leads to practical limitations in their ability to saturate such metrics in various cases, with respect to other computational/machine learning techniques.
+We wish to do so in order to closely observe behaviour at the edge of saturation. Indeed, we hypothesize that certain properties of gradient-based methods (relationship with data regime, differentiability constraint, etc) leads to practical limitations in their ability to saturate such metrics in various cases, with respect to other computational/machine learning techniques.
 
 We propose to attempt to observe this phenomenon by benchmarking deep learning methods against genetic algorithms. Unlike deep learning, which is restricted to differentiable functions, genetic algorithms can optimize over any space of functions for which outputs can be ranked.
 
