@@ -1,3 +1,5 @@
 Read @code\core\neuroevolution\MAIN.md and @code\core\neuroevolution\MAIN GOTCHAS.md. Do not read any other `.md` file. Implement a MVP where agents are only actors, have static architectures and optimize for total returns in CartPole. Do not investigate `amdsmi` warnings. Make sure the average fitness is improving. Absolutely make sure that no relevant specification is ignored, even when running into errors. After debugging, write down any new gotchas in @code\core\neuroevolution\MAIN GOTCHAS.md (don't forget to take into account existing ones). Do not run any tasks in the background.
 
 ---
+
+Read @code\core\neuroevolution\MAIN.md and @code\core\neuroevolution\MAIN GOTCHAS.md. Do not read any other `.md` file. Do not investigate `amdsmi` warnings. Make sure to have many tests to validate functionality. Absolutely make sure that no relevant specification is ignored, even when running into errors. After debugging, write down any new gotchas in @code\core\neuroevolution\MAIN GOTCHAS.md (don't forget to take into account existing ones). Do not run any tasks in the background.
