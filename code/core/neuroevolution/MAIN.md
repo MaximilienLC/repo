@@ -60,7 +60,7 @@ When agents are **mutators**, agents also get to **pick out some changes to appl
 
 Agents make use of neural networks to perform computations.
 
-Leveraging the flexibility of genetic algorithms, we focus on neural networks with **dynamically complexifying architectures** (more info `@DYNAMIC NETWORKS.md`), however we also implement standard **static architecture** neural networks.
+Leveraging the flexibility of genetic algorithms, we focus on neural networks with **dynamically complexifying architectures** ([more info](#a-dynamically-complexifying-networks)), however we also implement standard **static architecture** neural networks.
 
 #### A. Dynamically complexifying networks
 
