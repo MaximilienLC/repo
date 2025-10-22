@@ -1,7 +1,7 @@
-# Neuroevolution
+# code/core/neuroevolution/
 
 ## Table of Contents
-- [Neuroevolution](#neuroevolution)
+- [code/core/neuroevolution/](#codecoreneuroevolution)
   - [Table of Contents](#table-of-contents)
   - [I. Overview](#i-overview)
     - [1. Description](#1-description)
@@ -11,12 +11,6 @@
   - [III. Agent networks](#iii-agent-networks)
     - [1. Description](#1-description-2)
       - [A. Dynamically complexifying networks](#a-dynamically-complexifying-networks)
-        - [i. Structure](#i-structure)
-        - [ii. Original structure](#ii-original-structure)
-        - [iii. Mutations](#iii-mutations)
-        - [iv. Representation for computation](#iv-representation-for-computation)
-        - [v. Node computation](#v-node-computation)
-        - [vi. Computation pipeline](#vi-computation-pipeline)
     - [2. Details](#2-details-1)
   - [IV. Agent playground](#iv-agent-playground)
     - [1. Description](#1-description-3)
@@ -60,67 +54,11 @@ When agents are **mutators**, agents also get to **pick out some changes to appl
 
 Agents make use of neural networks to perform computations.
 
-Leveraging the flexibility of genetic algorithms, we focus on neural networks with **dynamically complexifying architectures** ([more info](#a-dynamically-complexifying-networks)), however we also implement standard **static architecture** neural networks.
+Leveraging the flexibility of genetic algorithms, we heavily focus on neural networks with **dynamically complexifying architectures** ([more info](#a-dynamically-complexifying-networks)), however we also implement standard **static architecture** neural networks.
 
 #### A. Dynamically complexifying networks
 
-Disclaimer: the words `node` and `neuron` are used interchangeably in this document.
-
-##### i. Structure
-
-The networks have three types of neurons: input, hidden and output.
-Input and output neurons have no biases.
-
-##### ii. Original structure
-
-The network begins with one input node per value it inputs, one output node per value it outputs, and no hidden neurons.
-
-A network's original structure differs whether or not it is remapping some signal.
-
-In all cases, it begins with no hidden neurons.
-
-If no deep learning, there is no original connection between the input and output nodes.
-Since the first variation stage occurs before the first evaluation stage, the network will have an opportunity to grow neural circuits at that point.
-
-If not, the network starts with 
-
-##### iii. Mutations
-
-These networks are dynamic in structure: they contract and expand through two mutation types: `grow_node` and `prune_node`.
-
-##### iv. Representation for computation
-
-N/A.
-
-##### v. Node computation
-
-A node N performs a simple `tanh(wx+b)` with `x` being a vector concatenating outputs from the nodes that connect to node N (which includes node N itself).
-
-In practice, all nodes in the network
-
-Input, hidden, output neurons
-
-if mapping from environment input space to output space:
-start with no hidden neuron, and no connection between neurons.
-
-if mapping from deep learning model output space back into output space:
-start with no hidden neuron, and 
-
-##### vi. Computation pipeline
-
-(All computations are batched over the entire population)
-
-1. Pre-network processing
-
-This is where operations like standardization happen over the environment input vectors (or deep learning model output vectors).
-
-2. Network processing
-
-The results of Step 1 are multiplied against the sparse matrix representations of the networks' weights. The networks' biases are added to the results.
-
-3. Post-network processing
-
-This is where operations like producing a discrete action with `argmax` happen.
+@`code\core\neuroevolution\III. 1. A. Dynamically complexifying networks.md`
 
 ### 2. Details
 
