@@ -42,4 +42,4 @@ To do so, we need to probe the agent's intelligence and, perhaps more importantl
 
 ---
 
-For the sake of practicality, only step 1 is currently worked on software-wise in this repository.
+For the sake of practicality, only step 1 is currently worked on, software-wise, in this repository.
