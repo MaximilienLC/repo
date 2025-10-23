@@ -58,7 +58,7 @@ Leveraging the flexibility of genetic algorithms, we heavily focus on neural net
 
 #### A. Dynamically complexifying networks
 
-@`code\core\neuroevolution\III. 1. A. Dynamically complexifying networks.md`
+`@---III.1.A.DYNAMIC_NETWORKS.md`
 
 ### 2. Details
 
