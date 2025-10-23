@@ -1,1 +1,0 @@
-Read `@PROJECT_PROPOSAL.md`.

@@ -1,7 +1,7 @@
-# code/core/neuroevolution/
+# code/neuroevolution/
 
 ## Table of Contents
-- [code/core/neuroevolution/](#codecoreneuroevolution)
+- [code/neuroevolution/](#codeneuroevolution)
   - [Table of Contents](#table-of-contents)
   - [I. Overview](#i-overview)
     - [1. Description](#1-description)
