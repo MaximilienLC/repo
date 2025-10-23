@@ -1,31 +1,34 @@
 # Gotchas
 
-## Implementation Notes
+## Dataset Structure
+- The HuggingFace dataset `HumanCompatibleAI/ppo-CartPole-v1` contains episodes with 'obs' and 'acts' keys
+- Need to iterate through episodes and then through timesteps to extract individual (observation, action) pairs
+- Observations are stored as lists that need to be converted to numpy arrays
 
-1. **Data Device Management**: When using PyTorch Lightning with GPU, explicitly move the dataset tensors to GPU before passing them to the DataModule. While Lightning automatically handles model device placement, the data needs to be on the same device to avoid errors.
+## PyTorch Lightning Callbacks
+- To track metrics over every training step, need to use `on_train_batch_end` callback method
+- Metrics are accessible via `trainer.callback_metrics` dictionary
+- For periodic evaluation during training, callbacks must have access to the environment
 
-2. **CartPole Environment Specs**:
-   - State dimension: 4 (cart position, cart velocity, pole angle, pole angular velocity)
-   - Action dimension: 2 (push left or push right)
-   - Action space is discrete
+## Device Management
+- When using the trained model for inference (e.g., during rollouts), observations must be explicitly moved to the model's device
+- The model may be on GPU while environment returns CPU tensors
 
-3. **Behavior Cloning with Constant Action**:
-   - Training to imitate a policy that always outputs the same action results in trivial learning (100% accuracy very quickly)
-   - This is expected since the model just needs to memorize a single output
-   - Useful for verifying the training pipeline works correctly
+## Gymnasium API
+- Modern Gymnasium environments return 5 values from `step()`: (obs, reward, done, truncated, info)
+- Need to check both `done` and `truncated` flags to properly terminate episodes
+- `reset()` returns (obs, info) tuple
 
-4. **PyTorch Lightning Accuracy Tracking**:
-   - Store accuracies in a list attribute of the LightningModule during training_step
-   - Access this list after training to generate plots
-   - Each training step corresponds to one batch
+## Plotting Rewards Over Time
+- To plot rewards over training time, need to periodically evaluate the policy during training
+- This adds computational overhead but is necessary for tracking performance progression
+- Evaluation frequency (eval_freq parameter) should be balanced between plot granularity and training speed
 
-5. **Discrete Action Space Handling**:
-   - Use Linear layer with output_dim = num_actions
-   - Apply CrossEntropyLoss (expects logits, not probabilities)
-   - Use argmax for predictions during inference
-   - Action targets should be LongTensor (not Float)
+## PyTorch Lightning Data Loading
+- Setting `num_workers=0` avoids multiprocessing issues on Windows
+- Setting `persistent_workers=False` when num_workers=0 prevents warnings
 
-6. **Episode Termination in Data Collection**:
-   - Must reset environment when episode terminates or truncates
-   - CartPole episodes terminate when pole angle exceeds threshold or cart moves too far
-   - Always collect the requested number of transitions even if multiple episode resets are needed
+## Accuracy Tracking
+- Using cross-entropy loss for discrete action classification
+- Accuracy computed by comparing argmax of logits with ground truth actions
+- Both loss and accuracy logged at every step for fine-grained tracking
