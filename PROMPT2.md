@@ -2,6 +2,5 @@
 
 Good first set of initiatives! Here are a few questions/comments:
 - In your log you say the return of the expert is ~25 but then the expert level is 9 point something. What's going here?
-- The plots are 
+Let's skip training the policy and use this dataset instead https://huggingface.co/datasets/NathanGavenski/CartPole-v1
 - Moving forward, let's try to estimate FLOPs.
-- 
