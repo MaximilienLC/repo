@@ -1,3 +1,5 @@
+# Project Proposal
+
 In this project, we aim to run scaling law analyses — investigations into how key performance metrics evolve as variables like dataset size, model capacity and FLOPs increase — in behaviour cloning tasks.
 
 More specifically, we aim to perform these analyses on metrics that quantify perfection, i.e. that can saturate. This is somewhat in contrast with typical metrics in the scaling law literature — such as perplexity — that generally do not saturate.
@@ -14,13 +16,13 @@ DL model updates are fully data-driven, leaving no room for exploration of param
 DL methods are well-known to require large amounts of data to perform well. Their generalization relies heavily on distributional coverage, leading to overfitting on frequent patterns and poor handling of rare or unseen ones.
 
 4. Lack of causal abstraction
-DL models learn statistical associations rather than causal structures (at least not directly), limiting their ability to generalize under distributional shifts or to infer intent behind observed behaviour.
+DL models learn statistical associations rather than causal structures (Li et al., 2024) (at least not directly), limiting their ability to generalize under distributional shifts or to infer intent behind observed behaviour.
 
 5. Overparameterization bias
-While overparameterization aids optimization, it appears to encourage memorization and smooth interpolation over true understanding, reducing robustness in low-data or out-of-distribution regimes.
+While overparameterization aids optimization, it appears to encourage memorization and smooth interpolation over true understanding (Djiré et al., 2025), reducing robustness in low-data or out-of-distribution regimes.
 
 6. Representation entanglement
-Internal representations in deep models are highly distributed and entangled, making them harder to interpret or manipulate, and hindering modular reuse of learned components.
+Internal representations in deep models are highly distributed and entangled (Kumar et al., 2025), making them harder to interpret or manipulate, and hindering modular reuse of learned components.
 
 We propose to attempt to observe this failure to saturate by benchmarking DL methods against genetic algorithms (GAs).
 
@@ -31,16 +33,10 @@ GAs, in contrast, can:
 
 However, GAs' sole reliance on the selection mechanism to propagate information derived from data typically results in less efficient scaling compared to DL's backpropagation. To overcome this limitation, we thus propose to also explore a hybrid approach: leveraging the representational power and information-rich outputs of DL models as inputs to GAs. We hypothesize that this integration will enable us to explore beyond the confines of gradient-based optimization, while still benefiting from its efficiency.
 
+---
+
 We will first wish to look for cases where DL methods are less capable of saturating metrics than GAs. In order to do so, we plan to work our way up from simple 1) environments, e.g. classic control tasks in OpenAI Gym 2) behaviour targets, e.g. trained ML policies 3) models, e.g. double-layer MLPs and 4) optimization objectives, e.g. output classification; and work our way up to more complexity if needs be.
 
 Metrics will vary on a per-task basis.
 
 When/If we find such cases, we then plan to experiment with the hybrid method and observe its behaviour towards saturation with respect to both previously explored underlying methods.
-
----
-
-Above is a project proposal for one of my graduate courses. It was carefully written: each word generally has a good reason for being there. I would like you to work that project.
-
-More specifically, I would like you to begin with the early experiments that I have laid out (looking for cases where DL is less capable of saturating metrics). Note that in practice, hyper-parameter selection will have a large impact on whether this happens to be the case. I expect what I wrote up to be true in a context where hyper-parameter selection is approaching optimality.
-
-Please provide plots based on your findings. However, please be mindful of your context usage, given that it is limited. You do not need to write any sort of human-readable report or documentation. Only write down information that would be useful to you were I to begin a new session with a cleared context. Do not look for any already existing code. Absolutely make sure to follow my requests to the letter.
