@@ -1,4 +1,10 @@
-# Project Proposal
+# /projects/scaling bc to perfection/
+
+- [/projects/scaling bc to perfection/](#projectsscaling-bc-to-perfection)
+  - [Project Proposal](#project-proposal)
+
+
+## Project Proposal
 
 In this project, we aim to run scaling law analyses — investigations into how key performance metrics evolve as variables like dataset size, model capacity and FLOPs increase — in behaviour cloning tasks.
 

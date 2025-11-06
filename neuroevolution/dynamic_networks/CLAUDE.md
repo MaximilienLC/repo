@@ -1,11 +1,23 @@
-#### A. Dynamically complexifying networks
+# /neuroevolution/dynamic networks/
 
-##### i. Nodes
+- [/neuroevolution/dynamic networks/](#neuroevolutiondynamic-networks)
+  - [=== SPECIFICATIONS ===](#-specifications-)
+    - [I. Nodes](#i-nodes)
+    - [II. Original structure](#ii-original-structure)
+    - [III. Mutations](#iii-mutations)
+    - [IV. Representation for computation](#iv-representation-for-computation)
+    - [V. Node computation](#v-node-computation)
+    - [VI. Computation pipeline](#vi-computation-pipeline)
+  - [=== GOTCHAS ===](#-gotchas-)
+
+## === SPECIFICATIONS ===
+
+### I. Nodes
 
 The networks have three types of nodes: `input`, `hidden` and `output` nodes.
 `hidden` nodes have biases wheras `input` and `output` nodes do not.
 
-##### ii. Original structure
+### II. Original structure
 
 The network begins with one `input` node per value it inputs, one `output` node per value it outputs, and no `hidden` nodes.
 
@@ -16,7 +28,7 @@ Since the first variation stage occurs before the first evaluation stage, the ne
 
 If it is **remapping**, there is an equivalent amount of `input` and `output` nodes, and an edge with a weight of 1 is created between each `input` node `i` and `output` node `i`.
 
-##### iii. Mutations
+### III. Mutations
 
 The networks contract and expand in structure through two architectural mutations: `grow_node` and `prune_node`.
 
@@ -32,11 +44,11 @@ When the `prune_node` mutation is called, the following occurs:
 2) All of its edges, followed by itself, are pruned.
 3) The `prune_node` logic is then applied on any other `hidden` node that no longer **receives** or **emits** information.
 
-##### iv. Representation for computation
+### IV. Representation for computation
 
 N/A.
 
-##### v. Node computation
+### V. Node computation
 
 A node N performs a simple `tanh(wx+b)` with `x` being a vector concatenating outputs from the nodes that connect to node N (which includes node N itself).
 
@@ -50,7 +62,7 @@ start with no hidden neuron, and no connection between neurons.
 if mapping from deep learning model output space back into output space:
 start with no hidden neuron, and 
 
-##### vi. Computation pipeline
+### VI. Computation pipeline
 
 (All computations are batched over the entire population)
 
@@ -65,3 +77,5 @@ The results of Step 1 are multiplied against the sparse matrix representations o
 3. Post-network processing
 
 This is where operations like producing a discrete action with `argmax` happen.
+
+## === GOTCHAS ===
