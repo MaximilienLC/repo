@@ -72,7 +72,7 @@ Leveraging the flexibility of **genetic algorithms**, we heavily focus on neural
 
 #### Dynamically complexifying networks
 
-Implemented in `dynamic_networks/`.
+Implemented in `dynamic_net.py`.
 
 ### Details
 

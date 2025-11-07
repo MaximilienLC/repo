@@ -47,7 +47,7 @@ You may edit any part of `CLAUDE.md` files as you see fit.
 
 ### Focus on `CLAUDE.md` files
 
-Source code files are second-class citizens in this codebase.
+Apart from `neuroevolution/dynamic_net.py`, source code files are second-class citizens in this codebase.
 `CLAUDE.md` files contain all of the necessary information to (re)generate the source code files that drive execution.
 
 ### `CLAUDE.md` file structure
