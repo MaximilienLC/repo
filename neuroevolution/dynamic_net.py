@@ -30,10 +30,14 @@ class Node:
 
         `output` nodes: There are as many output nodes as there are expected
         output signal values. Output nodes are parametric nodes that
-        receive/emit signal from/to other nodes (or themselves).
+        receive/emit signal from/to other nodes (or themselves). During
+        a network pass, an output node runs the operation
+        `standardize(weights · inputs) + bias`.
 
         `hidden` nodes: Hidden nodes are parametric nodes that receive/emit
-        signal from/to other nodes (or themselves).
+        signal from/to other nodes (or themselves). Unlike output nodes, they
+        do not have biases. During a network pass, a hidden node runs the
+        operation `standardize(weights · inputs)`.
 
         Node outputs are standardized.
         Nodes do not have biases. All node outputs are standardized.

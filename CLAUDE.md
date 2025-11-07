@@ -3,6 +3,7 @@
     - [File reading](#file-reading)
   - [Task execution](#task-execution)
   - [`CLAUDE.md` file editing](#claudemd-file-editing)
+  - [Relevant computing environment information](#relevant-computing-environment-information)
 - [Specifications](#specifications)
   - [Codebase structure](#codebase-structure)
     - [Focus on `CLAUDE.md` files](#focus-on-claudemd-files)
@@ -11,13 +12,11 @@
       - [# Specifications](#-specifications)
   - [Codebase conventions](#codebase-conventions)
     - [Type hinting](#type-hinting)
-      - [Enforcement with `beartype`](#enforcement-with-beartype)
-      - [`torch` tensors](#torch-tensors)
+      - [Type hints enforcement using `beartype`](#type-hints-enforcement-using-beartype)
+      - [`torch` tensors with `jaxtyping`](#torch-tensors-with-jaxtyping)
       - [`beartype` validators](#beartype-validators)
       - [Type hinting variables](#type-hinting-variables)
-    - [`torch` tensor manipulation](#torch-tensor-manipulation)
-- [Miscelleaneous](#miscelleaneous)
-  - [Computing environment](#computing-environment)
+    - [`einops` to manipulate `torch` tensors](#einops-to-manipulate-torch-tensors)
 - [Gotchas](#gotchas)
 
 # Instructions for Claude Code
@@ -40,6 +39,18 @@ Never run any model optimization as a background task.
 ## `CLAUDE.md` file editing
 
 You may edit any part of `CLAUDE.md` files as you see fit.
+
+## Relevant computing environment information
+
+- Windows 11
+- GPU: AMD Radeon RX 7800 XT (16GB VRAM)
+- CPU: AMD Ryzen 7 7700X (8 core, 16 threads)
+- RAM: DDR5 32GB
+- SSD: NVME
+
+`torch`, `torchvision` and `torchaudio` are installed locally with GPU-support.
+Make sure that all heavy tensor operations are ran on the GPU.
+Do not investigate `amdsmi` warnings.
 
 # Specifications
 
@@ -73,34 +84,30 @@ The **Specifications** sections contain all of the relevant information in order
 
 Type hints are used extensively in this codebase.
 
-#### Enforcement with `beartype`
-
-Type hints are enforced using the python package `beartype`.
+#### Type hints enforcement using `beartype`
 
 The following code snippet can be found in relevant `__init__.py` files.
+
 ```
 from beartype.claw import beartype_this_package
 beartype_this_package()
 ```
 
-#### `torch` tensors
-
-In order to enhance correctness, we further constrain `torch` tensors using the python package `jaxtyping`.
+#### `torch` tensors with `jaxtyping`
 
 ```
 from jaxtyping import Float, Int
 
 def compute_loss(
-  predicted_logits: Float[Tensor, " BS SL NL"],
-  target_features: Float[Tensor, " BS SL NTF"],
-) -> Float[Tensor, " "]: ...
+  predicted_logits: Float[Tensor, "BS SL NL"],
+  target_features: Float[Tensor, "BS SL NTF"],
+) -> Float[Tensor, "1"]: ...
 ```
 
 #### `beartype` validators
 
-`@/utils/beartype.py` provides several `BeartypeValidator` generating functions.
+`/utils/beartype.py` provides several `BeartypeValidator` generating functions.
 
-They are used as such:
 ```
 from typing import Annotated as An
 from utils.beartype import not_empty, equal, one_of, ge, gt, le, lt
@@ -111,9 +118,7 @@ class Test:
 
 #### Type hinting variables
 
-In addition to type hinting arguments, return values, etc. as is common practice; we also type hint variables
-
-Example:
+In addition to type hinting arguments, return values, etc. as is common practice; we also often type hint variables
 
 ```
 flat_indices: Int[Tensor, " BSxSL 1"] = torch.multinomial(
@@ -122,9 +127,7 @@ flat_indices: Int[Tensor, " BSxSL 1"] = torch.multinomial(
 )
 ```
 
-### `torch` tensor manipulation
-
-We use python package `einops` in order to manipulate tensors, e.g.
+### `einops` to manipulate `torch` tensors
 
 ```
 from einops import rearrange, reduce, repeat
@@ -133,20 +136,6 @@ flat_pi: Float[Tensor, " BSxSL NG"] = rearrange(
     pattern="BS SL NG -> (BS SL) NG",
 )
 ```
-
-# Miscelleaneous
-
-## Computing environment
-
-- Windows 11
-- GPU: AMD Radeon RX 7800 XT (16GB VRAM)
-- CPU: AMD Ryzen 7 7700X (8 core, 16 threads)
-- RAM: 32GB, 6000 MT/s
-- SSD: NVME
-
-`torch`, `torchvision` and `torchaudio` are installed locally with GPU-support.
-Make sure that all tensor operations are ran on the GPU.
-Do not investigate `amdsmi` warnings.
 
 # Gotchas
 
