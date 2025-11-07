@@ -9,6 +9,13 @@
     - [`CLAUDE.md` file structure](#claudemd-file-structure)
       - [Table of contents](#table-of-contents)
       - [# Specifications](#-specifications)
+  - [Codebase conventions](#codebase-conventions)
+    - [Type hinting](#type-hinting)
+      - [Enforcement with `beartype`](#enforcement-with-beartype)
+      - [`torch` tensors](#torch-tensors)
+      - [`beartype` validators](#beartype-validators)
+      - [Type hinting variables](#type-hinting-variables)
+    - [`torch` tensor manipulation](#torch-tensor-manipulation)
 - [Miscelleaneous](#miscelleaneous)
   - [Computing environment](#computing-environment)
 - [Gotchas](#gotchas)
@@ -23,7 +30,8 @@ Your effective context size is ~140k tokens. Be mindful to allocate it properly.
 
 ### File reading
 
-Never read files that you were not refered to (`@file.md` <=> refered, `file.md` <=> not refered)
+Never read files that you were not refered to (`@file.md` <=> refered, `file.md` <=> not refered).
+The only exception are files in the `/utils/` folder.
 
 ## Task execution
 
@@ -58,6 +66,73 @@ The top of `CLAUDE.md` files always feature a table of contents of format:
 #### # Specifications
 
 The **Specifications** sections contain all of the relevant information in order for Claude Code to generate the source code files in that folder (though not its subfolders). 
+
+## Codebase conventions
+
+### Type hinting
+
+Type hints are used extensively in this codebase.
+
+#### Enforcement with `beartype`
+
+Type hints are enforced using the python package `beartype`.
+
+The following code snippet can be found in relevant `__init__.py` files.
+```
+from beartype.claw import beartype_this_package
+beartype_this_package()
+```
+
+#### `torch` tensors
+
+In order to enhance correctness, we further constrain `torch` tensors using the python package `jaxtyping`.
+
+```
+from jaxtyping import Float, Int
+
+def compute_loss(
+  predicted_logits: Float[Tensor, " BS SL NL"],
+  target_features: Float[Tensor, " BS SL NTF"],
+) -> Float[Tensor, " "]: ...
+```
+
+#### `beartype` validators
+
+`@/utils/beartype.py` provides several `BeartypeValidator` generating functions.
+
+They are used as such:
+```
+from typing import Annotated as An
+from utils.beartype import not_empty, equal, one_of, ge, gt, le, lt
+
+class Test:
+    input_size: An[int, ge(1)]
+```
+
+#### Type hinting variables
+
+In addition to type hinting arguments, return values, etc. as is common practice; we also type hint variables
+
+Example:
+
+```
+flat_indices: Int[Tensor, " BSxSL 1"] = torch.multinomial(
+    input=flat_pi,
+    num_samples=1,
+)
+```
+
+### `torch` tensor manipulation
+
+We use python package `einops` in order to manipulate tensors, e.g.
+
+```
+from einops import rearrange, reduce, repeat
+flat_pi: Float[Tensor, " BSxSL NG"] = rearrange(
+    tensor=pi,
+    pattern="BS SL NG -> (BS SL) NG",
+)
+```
 
 # Miscelleaneous
 
