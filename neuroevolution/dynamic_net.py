@@ -294,6 +294,7 @@ class DynamicNet:
             self.nodes.hidden.append(new_node)
         if role in ["hidden", "output"]:
             self.weights.append(new_node.weights)
+            # self.in_nodes_mutable_ids.append()
         self.total_num_nodes_grown += 1
         return new_node
 
@@ -332,6 +333,7 @@ class DynamicNet:
         for node in self.nodes.all:
             if node.mutable_uid > node_being_pruned.mutable_uid:
                 node.mutable_uid -= 1
+        # self.weights.pop(node_being_pruned.mutable_uid)
         self.in_nodes_mutable_ids -= (
             self.in_nodes_mutable_ids > node.mutable_uid
         ).float()
