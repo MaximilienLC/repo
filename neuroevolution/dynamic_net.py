@@ -3,7 +3,7 @@
 Network passes occur through population-wide operations and are thus not
 implemented here.
 
-Acronyms:
+Acronyms found in type-hints:
     NHON: Number of hidden and output nodes.
     NON:  Number of output nodes.
 """
@@ -25,25 +25,26 @@ class Node:
     def __init__(
         self: "Node",
         role: An[str, one_of("input", "hidden", "output")],
-        id: An[int, ge(0)],
+        mutable_uid: An[int, ge(0)],
+        immutable_uid: An[int, ge(0)],
     ) -> None:
-        """`input nodes`:
+        """* `input nodes`:
         - There are as many input nodes as there are input signals.
         - Each input node is assigned an input value and forwards it to nodes
         that it connects to.
         - Input nodes are non-parametric and do not receive signal from other
         nodes.
 
-        `hidden nodes`:
+           * `hidden nodes`:
         - Hidden nodes are mutable parametric nodes that receive/emit signal
-        from/to other nodes (including themselves).
+        from/to other nodes.
         - Hidden nodes have at most 3 incoming connections.
         - Hidden nodes' weights are randomly set when another node connects to
         it and then kept frozen. They do not have biases.
         - During a network pass, a hidden node runs the operation
         `standardize(weights · in_nodes' outputs)`
 
-        `output nodes`:
+           * `output nodes`:
         - Output nodes inherit all hidden nodes' properties.
         - There are as many output nodes as there are expected output signal
         values.
@@ -52,7 +53,10 @@ class Node:
         nodes actually have biases, unlike hidden nodes).
         """
         self.role: An[str, one_of("input", "hidden", "output")] = role
-        self.id = id  # Each node has a separate mutable identifier
+        # `mutable_uid` depends on the number of nodes presently in the network.
+        self.mutable_uid: int = mutable_uid
+        # `immutable_uid` depends on the total number of nodes ever grown.
+        self.immutable_uid: int = immutable_uid
         self.out_nodes: list[Node] = []
         if self.role != "input":
             self.in_nodes: list[Node] = []
@@ -60,54 +64,77 @@ class Node:
 
     def __repr__(self: "Node") -> str:
         """Examples:
-        Input node: ('x',) → 3 → (5, 7)
+        Input node:  ('x',) → 3 → (5, 7)
         Hidden node: (2, 4) → 5 → (7, 9)
         Output node: (3, 6) → 8 → ('y', 10)
         """
         node_inputs: tuple[Any, ...] = tuple(
-            ("x" if self.role == "input" else (node.id for node in self.in_nodes)),
+            (
+                "x"
+                if self.role == "input"
+                else (node.immutable_uid for node in self.in_nodes)
+            ),
         )
-        node_outputs: tuple[Any, ...] = tuple(node.id for node in self.out_nodes)
+        node_outputs: tuple[Any, ...] = tuple(
+            node.immutable_uid for node in self.out_nodes
+        )
         if self.role == "output":
             node_outputs = ("y", *node_outputs)
-        return str(node_inputs) + " → " + str(self.id) + " → " + str(node_outputs)
+        return (
+            str(node_inputs)
+            + " → "
+            + str(self.immutable_uid)
+            + " → "
+            + str(node_outputs)
+        )
 
     def sample_nearby_node(
         self: "Node",
         nodes_considered: OrderedSet["Node"],
+        local_connectivity_probability: float,
     ) -> "Node":
-        # Start with nodes within distance of 1
-        nodes_within_distance_i: OrderedSet["Node"] = OrderedSet(
+        # Start with nodes within distance of 1.
+        nodes_within_distance_i: OrderedSet[Node] = OrderedSet(
             ([] if self.role == "input" else self.in_nodes) + self.out_nodes
         )
-        # Iterate while no node has been found
+        # Iterate while no node has been found.
         node_found: bool = False
         while not node_found:
-            nodes_considered_at_distance_i: OrderedSet["Node"] = (
+            nodes_considered_at_distance_i: OrderedSet[Node] = (
                 nodes_within_distance_i & nodes_considered
             )
-            if nodes_considered_at_distance_i:
+            # * Having `nodes_considered_at_distance_i` be non-empty is not
+            #   sufficient to sample from it. `local_connectivity_probability`
+            #   controls how likely we are to sample from it at every iteration.
+            # * If `nodes_within_distance_i` == `nodes_considered`: we've
+            #   exhausted the search, time to sample.
+            if (
+                local_connectivity_probability > random.random()
+                and nodes_considered_at_distance_i
+            ) or nodes_within_distance_i == nodes_considered:
                 nearby_node: Node = random.choice(nodes_considered_at_distance_i)
                 node_found: bool = True
             else:
-                # Expand search to nodes within distance of i+1
-                temp: OrderedSet["Node"] = nodes_within_distance_i.copy()
+                # Expand the search to nodes within distance of i+1.
+                nodes_within_distance_ip1: OrderedSet[Node] = (
+                    nodes_within_distance_i.copy()
+                )
                 for node in nodes_within_distance_i:
-                    temp |= OrderedSet(
+                    nodes_within_distance_ip1 |= OrderedSet(
                         ([] if node.role == "input" else node.in_nodes)
                         + node.out_nodes,
                     )
-                # If all nodes within distance i+1 have been considered,
-                # increase the search range to all `nodes_considered`
-                if nodes_within_distance_i == temp:
-                    nodes_within_distance_i = OrderedSet(nodes_considered)
+                if nodes_within_distance_ip1 != nodes_within_distance_i:
+                    nodes_within_distance_i = nodes_within_distance_ip1
+                # If we've reached the end of the connected sub-graph,
+                # increase the search range to all nodes considered.
                 else:
-                    nodes_within_distance_i = temp
+                    nodes_within_distance_i = OrderedSet(nodes_considered)
+
         return nearby_node
 
     def connect_to(self: "Node", node: "Node") -> None:
-        # Random weight
-        weight: Float[Tensor, "1"] = torch.randn(1)
+        weight: Float[Tensor, "1"] = torch.randn(1)  # Standard random weight.
         node.weights[len(node.in_nodes)] = weight
         self.out_nodes.append(node)
         node.in_nodes.append(self)
@@ -168,24 +195,28 @@ class DynamicNet:
     ) -> None:
         self.num_inputs: An[int, ge(1)] = num_inputs
         self.num_outputs: An[int, ge(1)] = num_outputs
+        self.total_num_nodes_grown: An[int, ge(0)] = 0
         self.nodes: NodeList = NodeList()
-        # A list that contains all mutable nodes' weights
+        # A list that contains all mutable nodes' weights.
         self.weights: list[Float[Tensor, "3"]] = []
-        # A tensor that contains all nodes' in nodes' ids. Used during
-        # computation to fetch the correct values from the `outputs` attribute
-        self.in_nodes_ids: Float[Tensor, "NHON 3"] = torch.empty(size=(0, 3))
+        # A tensor that contains all nodes' in nodes' mutable ids. Used during
+        # computation to fetch the correct values from the `outputs` attribute.
+        self.in_nodes_mutable_ids: Float[Tensor, "NHON 3"] = torch.empty(size=(0, 3))
         # The network's "bias layer"
         self.biases: Float[Tensor, "NON"] = torch.zeros(size=(self.num_outputs,))
         self.initialize_architecture()
         # A mutable value that controls the average number of chained
-        # `grow_node` mutations to perform per mutation call
+        # `grow_node` mutations to perform per mutation call.
         self.avg_num_grow_mutations: An[float, ge(0)] = 1.0
         # A mutable value that controls the average number of chained
-        # `prune_node` mutations to perform per mutation call
+        # `prune_node` mutations to perform per mutation call.
         self.avg_num_prune_mutations: An[float, ge(0)] = 0.5
         # A mutable value that controls the number of passes through the network
-        # per input
+        # per input.
         self.num_network_passes_per_input: An[int, ge(1)] = 1
+        # A mutable value that controls increased/decreased chance for local
+        # connectivity. More details in `Node.sample_nearby_node`.
+        self.local_connectivity_probability: An[float, ge(0), le(1)] = 0.5
 
     def initialize_architecture(self: "DynamicNet") -> None:
         for _ in range(self.num_inputs):
@@ -198,37 +229,72 @@ class DynamicNet:
         in_node_1: Node | None = None,
         role: An[str, one_of("input", "hidden", "output")] = "hidden",
     ) -> Node:
-        # Node with ID 0 is a shadow-node for the sake of facilitating
+        # Node with UID 0 is a shadow-node for the sake of facilitating
         # computation.
-        new_node = Node(role, id=len(self.nodes.all) + 1)
+        new_node = Node(
+            role,
+            mutable_uid=len(self.nodes.all) + 1,
+            immutable_uid=self.total_num_nodes_grown + 1,
+        )
         self.nodes.all.append(new_node)
         if role == "input":
             self.nodes.input.append(new_node)
             self.nodes.receiving.append(new_node)
         elif role == "output":
             self.nodes.output.append(new_node)
-        # Post-initialization, all `grow_node` calls create hidden nodes
+        # Post-initialization, all `grow_node` calls create hidden nodes.
         else:  # role == "hidden"
-            self.nodes.hidden.append(new_node)
-            receiving_nodes_set = OrderedSet(self.nodes.receiving)
-            # `in_node_1' → `new_node`
+            receiving_nodes_set: OrderedSet[Node] = OrderedSet(self.nodes.receiving)
+            non_emitting_input_nodes: OrderedSet[Node] = OrderedSet(
+                self.nodes.input
+            ) - (OrderedSet(self.nodes.input) & OrderedSet(self.nodes.emitting))
+            non_receiving_output_nodes: OrderedSet[Node] = OrderedSet(
+                self.nodes.output
+            ) - (OrderedSet(self.nodes.output) & OrderedSet(self.nodes.receiving))
+            # 1) `in_node_1' → `new_node`
             if not in_node_1:
-                in_node_1 = random.choice(receiving_nodes_set)
+                # First focus on connecting input nodes to the rest of the
+                # network.
+                nodes_considered_for_in_node_1: OrderedSet[Node] = (
+                    non_emitting_input_nodes
+                    if non_emitting_input_nodes
+                    else receiving_nodes_set
+                )
+                in_node_1 = random.choice(nodes_considered_for_in_node_1)
+            non_emitting_input_nodes -= OrderedSet([in_node_1])
             self.grow_connection(in_node=in_node_1, out_node=new_node)
-            # `in_node_2' → `new_node`
+            # 2) `in_node_2' → `new_node`
+            nodes_considered_for_in_node_2: OrderedSet[Node] = (
+                non_emitting_input_nodes
+                if non_emitting_input_nodes
+                else receiving_nodes_set
+            ) - OrderedSet([in_node_1])
             in_node_2: Node = in_node_1.sample_nearby_node(
-                nodes_considered=receiving_nodes_set,
+                nodes_considered_for_in_node_2,
+                self.local_connectivity_probability,
             )
             self.grow_connection(in_node=in_node_2, out_node=new_node)
-            # `new_node' → `out_node_1`
-            nodes_considered = OrderedSet()
-            for node in self.nodes.hidden + self.nodes.output:
-                if len(node.in_nodes) < 3:
-                    nodes_considered.add(node)
-            out_node_1: Node = new_node.sample_nearby_node(nodes_considered)
+            # 3) `new_node' → `out_node_1`
+            if non_receiving_output_nodes:
+                # First focus on connecting output nodes to the rest of the
+                # network.
+                nodes_considered_for_out_node_1: OrderedSet[Node] = (
+                    non_receiving_output_nodes.copy()
+                )
+            else:
+                nodes_considered_for_out_node_1: OrderedSet[Node] = OrderedSet()
+                for node in self.nodes.hidden + self.nodes.output:
+                    if len(node.in_nodes) < 3:
+                        nodes_considered_for_out_node_1.add(node)
+            out_node_1: Node = in_node_2.sample_nearby_node(
+                nodes_considered_for_out_node_1,
+                self.local_connectivity_probability,
+            )
             self.grow_connection(in_node=new_node, out_node=out_node_1)
+            self.nodes.hidden.append(new_node)
         if role in ["hidden", "output"]:
-            self.weights.append(node.weights)
+            self.weights.append(new_node.weights)
+        self.total_num_nodes_grown += 1
         return new_node
 
     def grow_connection(
@@ -264,9 +330,11 @@ class DynamicNet:
             while node_being_pruned in node_list:
                 node_list.remove(node_being_pruned)
         for node in self.nodes.all:
-            if node.id > node.id:
-                node.id -= 1
-        self.in_nodes_ids -= self.in_nodes_ids > node.id
+            if node.mutable_uid > node_being_pruned.mutable_uid:
+                node.mutable_uid -= 1
+        self.in_nodes_mutable_ids -= (
+            self.in_nodes_mutable_ids > node.mutable_uid
+        ).float()
 
     def prune_connection(
         self: "DynamicNet",
@@ -296,38 +364,53 @@ class DynamicNet:
 
     def mutate(self: "DynamicNet") -> None:
         # PARAMETERS
-        # `num_grow_mutations`
+
+        # `avg_num_grow_mutations`
         rand_val: float = 1.0 + 0.01 * torch.randn(1).item()
-        self.num_grow_mutations *= rand_val
-        # `num_prune_mutations`
+        self.avg_num_grow_mutations *= rand_val
+
+        # `avg_num_prune_mutations`
         rand_val: float = 1.0 + 0.01 * torch.randn(1).item()
-        self.num_prune_mutations *= rand_val
+        self.avg_num_prune_mutations *= rand_val
+
         # `num_network_passes_per_input`
         rand_val: An[int, ge(1), le(100)] = torch.randint(1, 101, (1,)).item()
         if rand_val == 1 and self.num_network_passes_per_input != 1:
             self.num_network_passes_per_input -= 1
         if rand_val == 100:
             self.num_network_passes_per_input += 1
+
+        # `local_connectivity_temperature`
+        rand_val: float = 0.01 * torch.randn(1).item()
+        self.local_connectivity_probability += rand_val
+        if self.local_connectivity_probability < 0:
+            self.local_connectivity_probability = 0
+        if self.local_connectivity_probability > 1:
+            self.local_connectivity_probability = 1
+
         # `biases`
         rand_vals: Float[Tensor, "NON"] = 0.01 * torch.randn(self.num_outputs)
         self.biases += rand_vals
 
         # ARCHITECTURE
+
         # `prune_node`
         rand_val: An[float, ge(0), le(1)] = float(torch.rand(1))
-        if rand_val > self.avg_num_prune_mutations:
+        if (self.avg_num_prune_mutations % 1) < rand_val:
             num_prune_mutations: An[int, ge(0)] = int(self.avg_num_prune_mutations)
         else:
             num_prune_mutations: An[int, ge(1)] = int(self.avg_num_prune_mutations) + 1
         for _ in range(num_prune_mutations):
             self.prune_node()
+
         # `grow_node`
         rand_val: An[float, ge(0), le(1)] = float(torch.rand(1))
-        if rand_val > self.avg_num_grow_mutations:
+        if (self.avg_num_grow_mutations % 1) < rand_val:
             num_grow_mutations: An[int, ge(0)] = int(self.avg_num_grow_mutations)
         else:
             num_grow_mutations: An[int, ge(1)] = int(self.avg_num_grow_mutations) + 1
         starting_node = None
         for _ in range(num_grow_mutations):
-            # Chained `grow_node` mutations re-use the previously created hidde
+            # Chained `grow_node` mutations re-use the previously created
+            # hidden node.
             starting_node = self.grow_node(in_node_1=starting_node)
