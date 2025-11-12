@@ -60,7 +60,7 @@ class Node:
         self.out_nodes: list[Node] = []
         if self.role != "input":
             self.in_nodes: list[Node] = []
-            self.weights: Float[Tensor, "3"] = torch.zeros(size=(3,))
+            self.weights: list[float] = [0, 0, 0]
 
     def __repr__(self: "Node") -> str:
         """Examples:
@@ -134,7 +134,7 @@ class Node:
         return nearby_node
 
     def connect_to(self: "Node", node: "Node") -> None:
-        weight: Float[Tensor, "1"] = torch.randn(1)  # Standard random weight.
+        weight: float = torch.randn(1).item()  # Standard random weight.
         node.weights[len(node.in_nodes)] = weight
         self.out_nodes.append(node)
         node.in_nodes.append(self)
@@ -198,10 +198,7 @@ class DynamicNet:
         self.total_num_nodes_grown: An[int, ge(0)] = 0
         self.nodes: NodeList = NodeList()
         # A list that contains all mutable nodes' weights.
-        self.weights: list[Float[Tensor, "3"]] = []
-        # A tensor that contains all nodes' in nodes' mutable ids. Used during
-        # computation to fetch the correct values from the `outputs` attribute.
-        self.in_nodes_mutable_ids: Float[Tensor, "NHON 3"] = torch.empty(size=(0, 3))
+        self.weights_list: list[list[float]] = []
         # The network's "bias layer"
         self.biases: Float[Tensor, "NON"] = torch.zeros(size=(self.num_outputs,))
         self.initialize_architecture()
@@ -293,8 +290,7 @@ class DynamicNet:
             self.grow_connection(in_node=new_node, out_node=out_node_1)
             self.nodes.hidden.append(new_node)
         if role in ["hidden", "output"]:
-            self.weights.append(new_node.weights)
-            # self.in_nodes_mutable_ids.append()
+            self.weights_list.append(new_node.weights)
         self.total_num_nodes_grown += 1
         return new_node
 
@@ -333,10 +329,7 @@ class DynamicNet:
         for node in self.nodes.all:
             if node.mutable_uid > node_being_pruned.mutable_uid:
                 node.mutable_uid -= 1
-        # self.weights.pop(node_being_pruned.mutable_uid)
-        self.in_nodes_mutable_ids -= (
-            self.in_nodes_mutable_ids > node.mutable_uid
-        ).float()
+        self.weights_list.remove(node_being_pruned.weights)
 
     def prune_connection(
         self: "DynamicNet",
@@ -416,3 +409,16 @@ class DynamicNet:
             # Chained `grow_node` mutations re-use the previously created
             # hidden node.
             starting_node = self.grow_node(in_node_1=starting_node)
+
+        # NETWORK PASS
+
+        mutable_nodes: list[Node] = self.nodes.output + self.nodes.hidden
+        # A tensor that contains all nodes' in nodes' mutable ids. Used during
+        # computation to fetch the correct values from the `outputs` attribute.
+        self.in_nodes_mapping: Float[Tensor, "NHON 3"] = torch.zeros(
+            (len(mutable_nodes), 3),
+        )
+        for i, mutable_node in enumerate(mutable_nodes):
+            for j, mutable_node_in_node in enumerate(mutable_node.in_nodes):
+                self.in_nodes_mapping[i][j] = mutable_node_in_node.mutable_uid
+        self.weights: Float[Tensor, "NHON 3"] = torch.tensor(self.weights_list)
