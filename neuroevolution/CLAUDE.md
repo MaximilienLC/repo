@@ -74,6 +74,34 @@ Leveraging the flexibility of **genetic algorithms**, we heavily focus on neural
 
 Implemented in `dynamic_net.py`.
 
+```
+from dynamic_net import Net
+
+net = Net(num_inputs, num_outputs) # Initialize
+net.mutate() # Perturb the network (to be called once per iteration)
+```
+
+The two key components to be retrieved for computation are `net.weights`,
+`net.biases` and `net.in_nodes_indices`.
+
+`net.weights` is a `float` `torch.Tensor` of shape `num_hidden_and_output_nodes x 3`. It contains all of the
+network's weights. Each node has at most 3 weights
+
+`net.biases` is a `float` `torch.Tensor` of shape `num_output_nodes x 3`. It contains all of
+the network's biases given that only output nodes have biases.
+
+`net.in_nodes_indices` is an `int` `torch.Tensor` of shape `num_hidden_and_output_nodes x 3`. It contains 
+
+```
+x = torch.randn(len(net.nodes.all))
+x_reshaped = torch.gather
+
+ Only output nodes have biases.
+- `net.biases`:
+- `net.in_nodes_indices` is a `torch.Tensor` of shape `NHON x 3`
+        # A tensor that contains all nodes' in nodes' mutable ids. Used during
+        # computation to fetch the correct values from the `outputs` attribute.
+
 ### Details
 
 * Given that networks are components of agents, they are **also maintained in population-wide tensors**. During evaluation for instance, input information of format `population_size x (input_dimensions)` is exposed to a weight metrix of format `population_size x (weight_dimensions)` through operations the likes of `torch.bmm()`.

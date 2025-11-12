@@ -1,9 +1,12 @@
 """Dynamically complexifying neural network.
 
-Network passes occur through population-wide operations and are thus not
-implemented here.
+Contains all components for the evolution of the network but only the
+pertinent information for the computation by the network.
 
-Acronyms found in type-hints:
+Network computation is to occur through population-wide operations and are
+thus not implemented here.
+
+Acronyms:
     NHON: Number of hidden and output nodes.
     NON:  Number of output nodes.
 """
@@ -28,14 +31,14 @@ class Node:
         mutable_uid: An[int, ge(0)],
         immutable_uid: An[int, ge(0)],
     ) -> None:
-        """* `input nodes`:
+        """Input nodes:
         - There are as many input nodes as there are input signals.
         - Each input node is assigned an input value and forwards it to nodes
         that it connects to.
         - Input nodes are non-parametric and do not receive signal from other
         nodes.
 
-           * `hidden nodes`:
+           Hidden nodes:
         - Hidden nodes are mutable parametric nodes that receive/emit signal
         from/to other nodes.
         - Hidden nodes have at most 3 incoming connections.
@@ -44,7 +47,7 @@ class Node:
         - During a network pass, a hidden node runs the operation
         `standardize(weights · in_nodes' outputs)`
 
-           * `output nodes`:
+           Output nodes:
         - Output nodes inherit all hidden nodes' properties.
         - There are as many output nodes as there are expected output signal
         values.
@@ -186,10 +189,10 @@ class NodeList:
         )
 
 
-class DynamicNet:
+class Net:
 
     def __init__(
-        self: "DynamicNet",
+        self: "Net",
         num_inputs: An[int, ge(1)],
         num_outputs: An[int, ge(1)],
     ) -> None:
@@ -215,14 +218,14 @@ class DynamicNet:
         # connectivity. More details in `Node.sample_nearby_node`.
         self.local_connectivity_probability: An[float, ge(0), le(1)] = 0.5
 
-    def initialize_architecture(self: "DynamicNet") -> None:
+    def initialize_architecture(self: "Net") -> None:
         for _ in range(self.num_inputs):
             self.grow_node(role="input")
         for _ in range(self.num_outputs):
             self.grow_node(role="output")
 
     def grow_node(
-        self: "DynamicNet",
+        self: "Net",
         in_node_1: Node | None = None,
         role: An[str, one_of("input", "hidden", "output")] = "hidden",
     ) -> Node:
@@ -295,7 +298,7 @@ class DynamicNet:
         return new_node
 
     def grow_connection(
-        self: "DynamicNet",
+        self: "Net",
         in_node: Node,
         out_node: Node,
     ) -> None:
@@ -303,7 +306,7 @@ class DynamicNet:
         self.nodes.receiving.append(out_node)
         self.nodes.emitting.append(in_node)
 
-    def prune_node(self: "DynamicNet", node_being_pruned: Node | None = None) -> None:
+    def prune_node(self: "Net", node_being_pruned: Node | None = None) -> None:
         if not node_being_pruned:
             if len(self.nodes.hidden) == 0:
                 return
@@ -332,7 +335,7 @@ class DynamicNet:
         self.weights_list.remove(node_being_pruned.weights)
 
     def prune_connection(
-        self: "DynamicNet",
+        self: "Net",
         in_node: Node,
         out_node: Node,
         node_being_pruned: Node,
@@ -357,7 +360,7 @@ class DynamicNet:
         ):
             self.prune_node(out_node)
 
-    def mutate(self: "DynamicNet") -> None:
+    def mutate(self: "Net") -> None:
         # PARAMETERS
 
         # `avg_num_grow_mutations`
@@ -415,10 +418,10 @@ class DynamicNet:
         mutable_nodes: list[Node] = self.nodes.output + self.nodes.hidden
         # A tensor that contains all nodes' in nodes' mutable ids. Used during
         # computation to fetch the correct values from the `outputs` attribute.
-        self.in_nodes_mapping: Float[Tensor, "NHON 3"] = torch.zeros(
+        self.in_nodes_indices: Float[Tensor, "NHON 3"] = torch.zeros(
             (len(mutable_nodes), 3),
         )
         for i, mutable_node in enumerate(mutable_nodes):
             for j, mutable_node_in_node in enumerate(mutable_node.in_nodes):
-                self.in_nodes_mapping[i][j] = mutable_node_in_node.mutable_uid
+                self.in_nodes_indices[i][j] = mutable_node_in_node.mutable_uid
         self.weights: Float[Tensor, "NHON 3"] = torch.tensor(self.weights_list)
