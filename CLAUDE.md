@@ -29,7 +29,7 @@ Your effective context size is ~140k tokens. Be mindful to allocate it properly.
 
 ### File reading
 
-Never read files that you were not refered to (`@file.md` <=> refered, `file.md` <=> not refered).
+Never read files that you were not refered to (`@file.py` <=> refered, `file.py` <=> not refered).
 The only exception are files in the `/utils/` folder.
 
 ## Task execution
@@ -76,7 +76,7 @@ The top of `CLAUDE.md` files always feature a table of contents of format:
 
 #### # Specifications
 
-The **Specifications** sections contain all of the relevant information in order for Claude Code to generate the source code files in that folder (though not its subfolders). 
+The `# Specifications` sections contain all of the relevant information in order for Claude Code to generate the source code files in that folder. (its subfolders may have their own `CLAUDE.md` files). 
 
 ## Codebase conventions
 
@@ -108,7 +108,7 @@ def compute_loss(
 
 #### `beartype` validators
 
-`/utils/beartype.py` provides several `BeartypeValidator` generating functions.
+`utils/beartype.py` provides several `BeartypeValidator` generating functions.
 
 ```
 from typing import Annotated as An
@@ -120,13 +120,14 @@ class Test:
 
 #### Type hinting variables
 
-In addition to type hinting arguments, return values, etc. as is common practice; we also often type hint variables
+In addition to type hinting arguments, return values, etc. as is common practice; we also most often type hint variables
 
 ```
 flat_indices: Int[Tensor, " BSxSL 1"] = torch.multinomial(
     input=flat_pi,
     num_samples=1,
 )
+node_list: list[Node] = []
 ```
 
 ### `einops` to manipulate `torch` tensors

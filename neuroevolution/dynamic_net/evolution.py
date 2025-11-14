@@ -7,8 +7,9 @@ Network computation is to occur through population-wide operations and are
 thus not implemented here.
 
 Acronyms:
-    NHON: Number of hidden and output nodes.
-    NON:  Number of output nodes.
+    `NMN`: Number of mutable (hidden and output) nodes.
+    `NON`:  Number of output nodes.
+    `NN`:   Number of nodes.
 """
 
 import random
@@ -18,7 +19,7 @@ from typing import Annotated as An
 from typing import Any
 
 import torch
-from jaxtyping import Float
+from jaxtyping import Float, Int
 from ordered_set import OrderedSet
 from torch import Tensor
 from utils.beartype import ge, le, one_of
@@ -51,9 +52,6 @@ class Node:
         - Output nodes inherit all hidden nodes' properties.
         - There are as many output nodes as there are expected output signal
         values.
-        - The network implements a "bias output layer" whose values are added
-        to the output nodes' computation results (effectively making output
-        nodes actually have biases, unlike hidden nodes).
         """
         self.role: An[str, one_of("input", "hidden", "output")] = role
         # `mutable_uid` depends on the number of nodes presently in the network.
@@ -71,25 +69,19 @@ class Node:
         Hidden node: (2, 4) → 5 → (7, 9)
         Output node: (3, 6) → 8 → ('y', 10)
         """
-        node_inputs: tuple[Any, ...] = tuple(
+        in_nodes: tuple[Any, ...] = tuple(
             (
                 "x"
                 if self.role == "input"
                 else (node.immutable_uid for node in self.in_nodes)
             ),
         )
-        node_outputs: tuple[Any, ...] = tuple(
+        out_nodes: tuple[Any, ...] = tuple(
             node.immutable_uid for node in self.out_nodes
         )
         if self.role == "output":
-            node_outputs = ("y", *node_outputs)
-        return (
-            str(node_inputs)
-            + " → "
-            + str(self.immutable_uid)
-            + " → "
-            + str(node_outputs)
-        )
+            out_nodes = ("y", *out_nodes)
+        return str(in_nodes) + " → " + str(self.immutable_uid) + " → " + str(out_nodes)
 
     def sample_nearby_node(
         self: "Node",
@@ -202,8 +194,15 @@ class Net:
         self.nodes: NodeList = NodeList()
         # A list that contains all mutable nodes' weights.
         self.weights_list: list[list[float]] = []
-        # The network's "bias layer"
-        self.biases: Float[Tensor, "NON"] = torch.zeros(size=(self.num_outputs,))
+        # A tensor that contains all nodes' computed outputs. Starts off with
+        # zeroes but gets updated after every evaluation stage.
+        self.x: Float[Tensor, "NN"] = torch.zeros(0)
+        # A tensor that contains all nodes' three running standardization
+        # parameters (Welford running standardization)
+        self.n_mean_M2: Float[
+            Tensor,
+            "NN 3",
+        ] = torch.zeros((0, 3))
         self.initialize_architecture()
         # A mutable value that controls the average number of chained
         # `grow_node` mutations to perform per mutation call.
@@ -229,12 +228,10 @@ class Net:
         in_node_1: Node | None = None,
         role: An[str, one_of("input", "hidden", "output")] = "hidden",
     ) -> Node:
-        # Node with UID 0 is a shadow-node for the sake of facilitating
-        # computation.
         new_node = Node(
             role,
-            mutable_uid=len(self.nodes.all) + 1,
-            immutable_uid=self.total_num_nodes_grown + 1,
+            mutable_uid=len(self.nodes.all),
+            immutable_uid=self.total_num_nodes_grown,
         )
         self.nodes.all.append(new_node)
         if role == "input":
@@ -294,6 +291,8 @@ class Net:
             self.nodes.hidden.append(new_node)
         if role in ["hidden", "output"]:
             self.weights_list.append(new_node.weights)
+        self.x = torch.cat((self.x, torch.zeros(1)))
+        self.n_mean_M2 = torch.cat((self.n_mean_M2, torch.zeros((1, 3))))
         self.total_num_nodes_grown += 1
         return new_node
 
@@ -314,6 +313,19 @@ class Net:
         if node_being_pruned in self.nodes.being_pruned:
             return
         self.nodes.being_pruned.append(node_being_pruned)
+        self.weights_list.remove(node_being_pruned.weights)
+        self.x = torch.cat(
+            (
+                self.x[: node_being_pruned.mutable_uid],
+                self.x[node_being_pruned.mutable_uid + 1 :],
+            )
+        )
+        self.n_mean_M2 = torch.cat(
+            (
+                self.n_mean_M2[: node_being_pruned.mutable_uid],
+                self.n_mean_M2[node_being_pruned.mutable_uid + 1 :],
+            )
+        )
         for node_being_pruned_out_node in node_being_pruned.out_nodes.copy():
             self.prune_connection(
                 in_node=node_being_pruned,
@@ -332,7 +344,6 @@ class Net:
         for node in self.nodes.all:
             if node.mutable_uid > node_being_pruned.mutable_uid:
                 node.mutable_uid -= 1
-        self.weights_list.remove(node_being_pruned.weights)
 
     def prune_connection(
         self: "Net",
@@ -386,10 +397,6 @@ class Net:
         if self.local_connectivity_probability > 1:
             self.local_connectivity_probability = 1
 
-        # `biases`
-        rand_vals: Float[Tensor, "NON"] = 0.01 * torch.randn(self.num_outputs)
-        self.biases += rand_vals
-
         # ARCHITECTURE
 
         # `prune_node`
@@ -418,10 +425,11 @@ class Net:
         mutable_nodes: list[Node] = self.nodes.output + self.nodes.hidden
         # A tensor that contains all nodes' in nodes' mutable ids. Used during
         # computation to fetch the correct values from the `outputs` attribute.
-        self.in_nodes_indices: Float[Tensor, "NHON 3"] = torch.zeros(
+        self.in_nodes_indices: Int[Tensor, "NMN 3"] = -torch.ones(
             (len(mutable_nodes), 3),
+            dtype=torch.int32,
         )
         for i, mutable_node in enumerate(mutable_nodes):
             for j, mutable_node_in_node in enumerate(mutable_node.in_nodes):
                 self.in_nodes_indices[i][j] = mutable_node_in_node.mutable_uid
-        self.weights: Float[Tensor, "NHON 3"] = torch.tensor(self.weights_list)
+        self.weights: Float[Tensor, "NMN 3"] = torch.tensor(self.weights_list)
