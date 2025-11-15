@@ -1,15 +1,18 @@
-"""Dynamically complexifying neural network.
+"""Contains logic to drive the evolution of a given network.
 
-Contains all components for the evolution of the network but only the
-pertinent information for the computation by the network.
+The logic contains many branches of execution and as a result is more sensible
+to run per-network rather than per-population.
+
+Also contains several components pertinent for network computation that get
+altered during network evolution.
 
 Network computation is to occur through population-wide operations and are
 thus not implemented here.
 
 Acronyms:
-    `NMN`: Number of mutable (hidden and output) nodes.
-    `NON`:  Number of output nodes.
-    `NN`:   Number of nodes.
+`NMN` : Number of mutable (hidden and output) nodes.
+`NON` : Number of output nodes.
+ `NN` : Number of nodes.
 """
 
 import random
@@ -32,14 +35,20 @@ class Node:
         mutable_uid: An[int, ge(0)],
         immutable_uid: An[int, ge(0)],
     ) -> None:
-        """Input nodes:
+        """Network node/neuron.
+
+        Three types of nodes:
+
+        Input nodes:
+        ------------
         - There are as many input nodes as there are input signals.
         - Each input node is assigned an input value and forwards it to nodes
         that it connects to.
         - Input nodes are non-parametric and do not receive signal from other
         nodes.
 
-           Hidden nodes:
+        Hidden nodes:
+        -------------
         - Hidden nodes are mutable parametric nodes that receive/emit signal
         from/to other nodes.
         - Hidden nodes have at most 3 incoming connections.
@@ -48,7 +57,8 @@ class Node:
         - During a network pass, a hidden node runs the operation
         `standardize(weights · in_nodes' outputs)`
 
-           Output nodes:
+        Output nodes:
+        -------------
         - Output nodes inherit all hidden nodes' properties.
         - There are as many output nodes as there are expected output signal
         values.
@@ -65,23 +75,34 @@ class Node:
 
     def __repr__(self: "Node") -> str:
         """Examples:
-        Input node:  ('x',) → 3 → (5, 7)
-        Hidden node: (2, 4) → 5 → (7, 9)
-        Output node: (3, 6) → 8 → ('y', 10)
+        Input node:  ('x',) → (0, '0') → ((6, '5'), (8, '7'))
+        Hidden node: ((0, '0'), (6, '5')) → (8, '7') → ((3, '3'),)
+        Output node: ((7, '6'), (8, '7')) → (3, '3') → ('y',)
         """
-        in_nodes: tuple[Any, ...] = tuple(
-            (
-                "x"
-                if self.role == "input"
-                else (node.immutable_uid for node in self.in_nodes)
-            ),
-        )
-        out_nodes: tuple[Any, ...] = tuple(
-            node.immutable_uid for node in self.out_nodes
-        )
+        in_nodes: str = ""
+        if self.role == "input":
+            in_nodes = "x"
+        else:
+            for node in self.in_nodes:
+                in_nodes += f"{node.mutable_uid}-{node.immutable_uid},"
+            in_nodes = in_nodes[:-1]
+
+        out_nodes: str = ""
         if self.role == "output":
-            out_nodes = ("y", *out_nodes)
-        return str(in_nodes) + " → " + str(self.immutable_uid) + " → " + str(out_nodes)
+            out_nodes = "y"
+        else:
+            for node in self.out_nodes:
+                out_nodes += f"{node.mutable_uid}-{node.immutable_uid},"
+            out_nodes = out_nodes[:-1]
+        return (
+            str([] if self.role == "input" else self.weights)
+            + " : "
+            + in_nodes
+            + " → "
+            + f"{self.mutable_uid}-{self.immutable_uid}"
+            + " → "
+            + out_nodes
+        )
 
     def sample_nearby_node(
         self: "Node",
@@ -98,11 +119,11 @@ class Node:
             nodes_considered_at_distance_i: OrderedSet[Node] = (
                 nodes_within_distance_i & nodes_considered
             )
-            # * Having `nodes_considered_at_distance_i` be non-empty is not
-            #   sufficient to sample from it. `local_connectivity_probability`
-            #   controls how likely we are to sample from it at every iteration.
-            # * If `nodes_within_distance_i` == `nodes_considered`: we've
-            #   exhausted the search, time to sample.
+            # 1) Having `nodes_considered_at_distance_i` be non-empty is not
+            # sufficient to sample from it. `local_connectivity_probability`
+            # controls how likely we are to sample from it at every iteration.
+            # 2) If `nodes_within_distance_i` == `nodes_considered`: we've
+            # exhausted the search, time to sample.
             if (
                 local_connectivity_probability > random.random()
                 and nodes_considered_at_distance_i
@@ -111,16 +132,16 @@ class Node:
                 node_found: bool = True
             else:
                 # Expand the search to nodes within distance of i+1.
-                nodes_within_distance_ip1: OrderedSet[Node] = (
+                nodes_within_distance_iplus1: OrderedSet[Node] = (
                     nodes_within_distance_i.copy()
                 )
                 for node in nodes_within_distance_i:
-                    nodes_within_distance_ip1 |= OrderedSet(
+                    nodes_within_distance_iplus1 |= OrderedSet(
                         ([] if node.role == "input" else node.in_nodes)
                         + node.out_nodes,
                     )
-                if nodes_within_distance_ip1 != nodes_within_distance_i:
-                    nodes_within_distance_i = nodes_within_distance_ip1
+                if nodes_within_distance_iplus1 != nodes_within_distance_i:
+                    nodes_within_distance_i = nodes_within_distance_iplus1
                 # If we've reached the end of the connected sub-graph,
                 # increase the search range to all nodes considered.
                 else:
@@ -136,7 +157,7 @@ class Node:
 
     def disconnect_from(self: "Node", node: "Node") -> None:
         i = node.in_nodes.index(self)
-        # Adjust the node's weights
+        # Reposition the node's weights
         if i == 0:
             node.weights[0] = node.weights[1]
         if i in (0, 1):
@@ -148,7 +169,7 @@ class Node:
 
 @dataclass
 class NodeList:
-    """Holds `Node` instances."""
+    """Holds `Node` instances for ease of manipulation."""
 
     all: list["Node"] = field(default_factory=list)
     input: list["Node"] = field(default_factory=list)
@@ -182,6 +203,8 @@ class NodeList:
 
 
 class Net:
+    """Network that expands/contracts through architectural mutations
+    `grow_node` and `prune_node` called through the `mutate` method."""
 
     def __init__(
         self: "Net",
@@ -194,16 +217,10 @@ class Net:
         self.nodes: NodeList = NodeList()
         # A list that contains all mutable nodes' weights.
         self.weights_list: list[list[float]] = []
-        # A tensor that contains all nodes' computed outputs. Starts off with
-        # zeroes but gets updated after every evaluation stage.
-        self.x: Float[Tensor, "NN"] = torch.zeros(0)
-        # A tensor that contains all nodes' three running standardization
-        # parameters (Welford running standardization)
-        self.n_mean_M2: Float[
-            Tensor,
-            "NN 3",
-        ] = torch.zeros((0, 3))
-        self.initialize_architecture()
+        # A tensor that contains all nodes' computation parameters.
+        # `n`, `mean` and `m2` are used for the Welford running
+        # standardization. `x` are the node's computed outputs.
+        self.n_mean_m2_x: Float[Tensor, "NN 4"] = torch.zeros((0, 4))
         # A mutable value that controls the average number of chained
         # `grow_node` mutations to perform per mutation call.
         self.avg_num_grow_mutations: An[float, ge(0)] = 1.0
@@ -216,6 +233,7 @@ class Net:
         # A mutable value that controls increased/decreased chance for local
         # connectivity. More details in `Node.sample_nearby_node`.
         self.local_connectivity_probability: An[float, ge(0), le(1)] = 0.5
+        self.initialize_architecture()
 
     def initialize_architecture(self: "Net") -> None:
         for _ in range(self.num_inputs):
@@ -228,6 +246,12 @@ class Net:
         in_node_1: Node | None = None,
         role: An[str, one_of("input", "hidden", "output")] = "hidden",
     ) -> Node:
+        """Method first called during initialization to grow the irremovable
+        input and output nodes.
+
+        Post-initialization, all calls create new hidden nodes.
+        In such setting, three existing nodes are sampled: 2 to connect from
+        and 1 to connect to."""
         new_node = Node(
             role,
             mutable_uid=len(self.nodes.all),
@@ -239,7 +263,6 @@ class Net:
             self.nodes.receiving.append(new_node)
         elif role == "output":
             self.nodes.output.append(new_node)
-        # Post-initialization, all `grow_node` calls create hidden nodes.
         else:  # role == "hidden"
             receiving_nodes_set: OrderedSet[Node] = OrderedSet(self.nodes.receiving)
             non_emitting_input_nodes: OrderedSet[Node] = OrderedSet(
@@ -291,21 +314,17 @@ class Net:
             self.nodes.hidden.append(new_node)
         if role in ["hidden", "output"]:
             self.weights_list.append(new_node.weights)
-        self.x = torch.cat((self.x, torch.zeros(1)))
-        self.n_mean_M2 = torch.cat((self.n_mean_M2, torch.zeros((1, 3))))
+        self.n_mean_m2_x = torch.cat((self.n_mean_m2_x, torch.zeros((1, 4))))
         self.total_num_nodes_grown += 1
         return new_node
 
-    def grow_connection(
-        self: "Net",
-        in_node: Node,
-        out_node: Node,
-    ) -> None:
+    def grow_connection(self: "Net", in_node: Node, out_node: Node) -> None:
         in_node.connect_to(out_node)
         self.nodes.receiving.append(out_node)
         self.nodes.emitting.append(in_node)
 
     def prune_node(self: "Net", node_being_pruned: Node | None = None) -> None:
+        """Removes an existing hidden node."""
         if not node_being_pruned:
             if len(self.nodes.hidden) == 0:
                 return
@@ -314,16 +333,10 @@ class Net:
             return
         self.nodes.being_pruned.append(node_being_pruned)
         self.weights_list.remove(node_being_pruned.weights)
-        self.x = torch.cat(
+        self.n_mean_m2_x = torch.cat(
             (
-                self.x[: node_being_pruned.mutable_uid],
-                self.x[node_being_pruned.mutable_uid + 1 :],
-            )
-        )
-        self.n_mean_M2 = torch.cat(
-            (
-                self.n_mean_M2[: node_being_pruned.mutable_uid],
-                self.n_mean_M2[node_being_pruned.mutable_uid + 1 :],
+                self.n_mean_m2_x[: node_being_pruned.mutable_uid],
+                self.n_mean_m2_x[node_being_pruned.mutable_uid + 1 :],
             )
         )
         for node_being_pruned_out_node in node_being_pruned.out_nodes.copy():
@@ -346,18 +359,18 @@ class Net:
                 node.mutable_uid -= 1
 
     def prune_connection(
-        self: "Net",
-        in_node: Node,
-        out_node: Node,
-        node_being_pruned: Node,
+        self: "Net", in_node: Node, out_node: Node, node_being_pruned: Node
     ) -> None:
+        """Called by `prune_node` to remove the `node_being_pruned`'s
+        connections.
+
+        Any hidden node that becomes disconnected from the network as a result
+        is also pruned."""
         if in_node not in out_node.in_nodes:
             return
         in_node.disconnect_from(out_node)
         self.nodes.receiving.remove(out_node)
         self.nodes.emitting.remove(in_node)
-        # If the node that is not currently being pruned is now disconnected
-        # from the network, prune it.
         if (
             in_node is not node_being_pruned
             and in_node in self.nodes.hidden
@@ -372,23 +385,19 @@ class Net:
             self.prune_node(out_node)
 
     def mutate(self: "Net") -> None:
-        # PARAMETERS
-
+        # PARAMETER PERTURBATION
         # `avg_num_grow_mutations`
         rand_val: float = 1.0 + 0.01 * torch.randn(1).item()
         self.avg_num_grow_mutations *= rand_val
-
         # `avg_num_prune_mutations`
         rand_val: float = 1.0 + 0.01 * torch.randn(1).item()
         self.avg_num_prune_mutations *= rand_val
-
         # `num_network_passes_per_input`
         rand_val: An[int, ge(1), le(100)] = torch.randint(1, 101, (1,)).item()
         if rand_val == 1 and self.num_network_passes_per_input != 1:
             self.num_network_passes_per_input -= 1
         if rand_val == 100:
             self.num_network_passes_per_input += 1
-
         # `local_connectivity_temperature`
         rand_val: float = 0.01 * torch.randn(1).item()
         self.local_connectivity_probability += rand_val
@@ -397,8 +406,7 @@ class Net:
         if self.local_connectivity_probability > 1:
             self.local_connectivity_probability = 1
 
-        # ARCHITECTURE
-
+        # ARCHITECTURE PERTURBATION
         # `prune_node`
         rand_val: An[float, ge(0), le(1)] = float(torch.rand(1))
         if (self.avg_num_prune_mutations % 1) < rand_val:
@@ -407,7 +415,6 @@ class Net:
             num_prune_mutations: An[int, ge(1)] = int(self.avg_num_prune_mutations) + 1
         for _ in range(num_prune_mutations):
             self.prune_node()
-
         # `grow_node`
         rand_val: An[float, ge(0), le(1)] = float(torch.rand(1))
         if (self.avg_num_grow_mutations % 1) < rand_val:
@@ -420,16 +427,16 @@ class Net:
             # hidden node.
             starting_node = self.grow_node(in_node_1=starting_node)
 
-        # NETWORK PASS
-
+        # NETWORK COMPUTATION COMPONENTS GENERATION
         mutable_nodes: list[Node] = self.nodes.output + self.nodes.hidden
         # A tensor that contains all nodes' in nodes' mutable ids. Used during
         # computation to fetch the correct values from the `outputs` attribute.
-        self.in_nodes_indices: Int[Tensor, "NMN 3"] = -torch.ones(
-            (len(mutable_nodes), 3),
-            dtype=torch.int32,
+        self.in_nodes_indices: Int[Tensor, "NMN 3"] = -1 * torch.ones(
+            (len(mutable_nodes), 3), dtype=torch.int32
         )
         for i, mutable_node in enumerate(mutable_nodes):
             for j, mutable_node_in_node in enumerate(mutable_node.in_nodes):
                 self.in_nodes_indices[i][j] = mutable_node_in_node.mutable_uid
-        self.weights: Float[Tensor, "NMN 3"] = torch.tensor(self.weights_list)
+        self.weights: Float[Tensor, "NMN 3"] = torch.tensor(
+            self.weights_list, dtype=torch.float32
+        )

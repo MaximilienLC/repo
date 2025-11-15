@@ -5,7 +5,7 @@
     - [Details](#details)
   - [Agent networks](#agent-networks)
     - [Description](#description-1)
-      - [Static networks](#static-networks)
+      - [Static architecture networks](#static-architecture-networks)
       - [Dynamically complexifying networks](#dynamically-complexifying-networks)
         - [Initalization and mutation](#initalization-and-mutation)
         - [Components for computation](#components-for-computation)
@@ -23,34 +23,34 @@
 
 This folder hosts `neuroevolution` methods (`evolutionary algorithms` optimizing `artificial neural networks`) that we are developping. This folder does not contain any experimentation code.
 
-At this point in time, we only leverage a simple `genetic algorithm`. It is characterized by three stages:
+At this point in time, we build upon a simple `genetic algorithm`. It is characterized by three stages:
 - `variation`: agents in the population are `randomly perturbed`.
 - `evaluation`: agents `perform a given task` and are `assigned a fitness score`.
 - `selection`: agents with the `top 50% fitness scores` are `selected and duplicated`, taking over the population slots of the lower 50% scoring agents.
 
 ### Details
 
-In order to most naturally leverage GPU computation, the `population is the point of focus` in this codebase: agents are mostly abstracted away (`dynamic_net.py` being the exception) from the implementation. Agents' information is instead held in indexable population-wise tensors.
+In order to most naturally leverage GPU computation, the `population is the point of focus` in this codebase: agents are mostly abstracted away from the implementation. Agents' information is instead held in indexable population-wise tensors.
 
 ## Agent networks
 
 ### Description
 
 Agents make use of neural networks to perform computations.
+We experiment with two types of networks: `static architecture` networks, and networks with `dynamically complexifying architectures`.
 
-Leveraging the flexibility of `genetic algorithms`, we heavily focus on neural networks with `dynamically complexifying architectures` ([more info](#a-dynamically-complexifying-networks)), however we also implement standard `static architecture` neural networks for more general use across all our implemented `evolutionary algorithms`.
+#### Static architecture networks
 
-#### Static networks
+Static architecture networks take the shape of standard deep networks, but do not leverage their differentiation logic.
 
-Static networks take the shape of standard deep networks, but does not leverage their differentiation logic.
-
-With `θ` representing all network parameters, `θᵢ` representing network parameter at index `i` (imagining all parameters flattened in a vector); we implement 3 ways of perturbing these networks:
-1. Every generation, `∀θᵢ, εᵢ ~ N(0, .01), θᵢ += εᵢ` (applies noise sampled from the `same gaussian distribution` across network parameters `θ`).
-2. Begin optimization by setting `∀θᵢ, σᵢ = .01`. Every generation, `∀θᵢ, ξᵢ ~ N(0, .01), σᵢ ×= (1 + ξᵢ), εᵢ ~ N(0, σᵢ²), θᵢ += εᵢ` (applies noise sampled from a gaussian distribution with `shifting standard deviation σ` across network parameters `θ`. The shifting of `σ` is driven by applying noise sampled from the `same gaussian distribution` , like in the first method).
-3. Every generation, `∀θᵢ, εᵢ ~ N(0, .01), θᵢ += AdamW_step(εᵢ)`.
+With `θ` representing all network parameters, `θᵢ` representing network parameter at index `i` (picturing all parameters flattened in a vector), we implement 3 ways of perturbing these networks:
+1. Every generation, `∀θᵢ, εᵢ ~ N(0, 1e-3), θᵢ += εᵢ` (`1e-3` is picked to match the default learning rates for common `torch` optimizers like `SGD` and `AdamW`) <=> noise sampled from the `same gaussian distribution` is applied across network parameters `θ` .
+2. Begin optimization by setting `∀θᵢ, σᵢ = 1e-3`. Every generation, `∀θᵢ, ξᵢ ~ N(0, 1e-2), σᵢ ×= (1 + ξᵢ), εᵢ ~ N(0, σᵢ²), θᵢ += εᵢ` <=> noise sampled from a gaussian distribution with `shifting per-parameter standard deviation σ` is applied across network parameters `θ`. The shifting of `σ` is driven by applying noise sampled from the `same gaussian distribution` (as in the first method).
+3. Every generation, `∀θᵢ, εᵢ ~ N(0, 1e-3), θᵢ += AdamW_step(εᵢ)`.
 
 #### Dynamically complexifying networks
 
+The only component of the codebase 
 Implemented in `dynamic_net.py`, we do not describe how these networks' architecture comes about here.
 
 However we do describe how to interface with them.
