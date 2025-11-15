@@ -217,10 +217,11 @@ class Net:
         self.nodes: NodeList = NodeList()
         # A list that contains all mutable nodes' weights.
         self.weights_list: list[list[float]] = []
-        # A tensor that contains all nodes' computation parameters.
+        # A tensor that contains all nodes' up-to-date computed parameters.
         # `n`, `mean` and `m2` are used for the Welford running
-        # standardization. `x` are the node's computed outputs.
-        self.n_mean_m2_x: Float[Tensor, "NN 4"] = torch.zeros((0, 4))
+        # standardization. `x` and `z` are the node's raw and standardized
+        # computed outputs respectively
+        self.n_mean_m2_x_z: Float[Tensor, "NN 5"] = torch.zeros((0, 5))
         # A mutable value that controls the average number of chained
         # `grow_node` mutations to perform per mutation call.
         self.avg_num_grow_mutations: An[float, ge(0)] = 1.0
@@ -314,7 +315,7 @@ class Net:
             self.nodes.hidden.append(new_node)
         if role in ["hidden", "output"]:
             self.weights_list.append(new_node.weights)
-        self.n_mean_m2_x = torch.cat((self.n_mean_m2_x, torch.zeros((1, 4))))
+        self.n_mean_m2_x_z = torch.cat((self.n_mean_m2_x_z, torch.zeros((1, 5))))
         self.total_num_nodes_grown += 1
         return new_node
 
@@ -333,10 +334,10 @@ class Net:
             return
         self.nodes.being_pruned.append(node_being_pruned)
         self.weights_list.remove(node_being_pruned.weights)
-        self.n_mean_m2_x = torch.cat(
+        self.n_mean_m2_x_z = torch.cat(
             (
-                self.n_mean_m2_x[: node_being_pruned.mutable_uid],
-                self.n_mean_m2_x[node_being_pruned.mutable_uid + 1 :],
+                self.n_mean_m2_x_z[: node_being_pruned.mutable_uid],
+                self.n_mean_m2_x_z[node_being_pruned.mutable_uid + 1 :],
             )
         )
         for node_being_pruned_out_node in node_being_pruned.out_nodes.copy():

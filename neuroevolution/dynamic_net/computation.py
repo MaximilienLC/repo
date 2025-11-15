@@ -23,88 +23,100 @@ beartype_this_package(conf=BeartypeConf(is_pep484_tower=True))
 class WelfordRunningStandardizer:
     def __init__(
         self: "WelfordRunningStandardizer",
-        n_mean_m2_x: Float[Tensor, "TNNplus1 4"],
+        n_mean_m2_x_z: Float[Tensor, "TNNplus1 5"],
         verbose: bool = False,
     ):
-        self.n_mean_m2_x: Float[Tensor, "TNNplus1 4"] = n_mean_m2_x
+        self.n_mean_m2_x_z: Float[Tensor, "TNNplus1 5"] = n_mean_m2_x_z
         self.verbose = verbose
         if verbose:
-            print("a. n_mean_m2_x")
-            print(n_mean_m2_x)
+            print("a. Initial n_mean_m2_x_z")
+            print(n_mean_m2_x_z)
 
     def __call__(
         self: "WelfordRunningStandardizer",
-        x: Float[Tensor, "TNNplus1"],
+        x_or_z: Float[Tensor, "TNNplus1"],
     ) -> Float[Tensor, "TNNplus1"]:
         """
-        Processes an input tensor 'x' containing a mix of old z-scores and
-        new raw values.
+        Processes an input tensor 'x_or_z' containing a mix of old z-scores
+        and new raw values.
 
-        - If x[i] == prev_x[i] (old z-score) or x[i] == 0, stats are not updated.
-        - If x[i] != prev_x[i] (new raw value), stats are updated using x[i].
+        - If x_or_z[i] == prev_z[i] (old z-score) or x_or_z[i] == 0,
+          stats are not updated.
+        - If x_or_z[i] != prev_z[i] (new raw value), stats are updated
+          using x_or_z[i].
 
         Returns a tensor where new raw values have been standardized and
         old z-scores remain the same.
         """
-
         # 1. Get previous state
-        prev_n: Float[Tensor, "TNNplus1"] = self.n_mean_m2_x[:, 0]
-        prev_mean: Float[Tensor, "TNNplus1"] = self.n_mean_m2_x[:, 1]
-        prev_m2: Float[Tensor, "TNNplus1"] = self.n_mean_m2_x[:, 2]
-        # 'prev_x' holds the *previous z-score output*
-        prev_x: Float[Tensor, "TNNplus1"] = self.n_mean_m2_x[:, 3]
+        prev_n: Float[Tensor, "TNNplus1"] = self.n_mean_m2_x_z[:, 0]
+        prev_mean: Float[Tensor, "TNNplus1"] = self.n_mean_m2_x_z[:, 1]
+        prev_m2: Float[Tensor, "TNNplus1"] = self.n_mean_m2_x_z[:, 2]
+        prev_x: Float[Tensor, "TNNplus1"] = self.n_mean_m2_x_z[:, 3]
+        prev_z: Float[Tensor, "TNNplus1"] = self.n_mean_m2_x_z[:, 4]
 
-        # 2. Define the update mask. Update only for "new raw values",
-        #    which are non-zero and not equal to the last z-score output.
+        # 2. Define the update mask. Update only for new values.
+        update_mask: Bool[Tensor, "TNNplus1"] = (
+            (x_or_z != 0) & (x_or_z != prev_x) & (x_or_z != prev_z)
+        )
 
-        mask: Bool[Tensor, "TNNplus1"] = (x != 0) & (x != prev_x)
         if self.verbose:
-            print("b. x")
-            print(x)
-            print("c. prev_x")
+            print("b. x_or_z (input)")
+            print(x_or_z)
+            print("c. prev_x (previous raw output)")
             print(prev_x)
-            print("d. mask")
-            print(mask)
-        # 3. Calculate potential new values for the stats (based on raw x)
+            print("c. prev_z (previous z-score output)")
+            print(prev_z)
+            print("d. update_mask (update=True)")
+            print(update_mask)
+
+        # 3. Calculate potential new values for the stats from `x_or_z`.
         n_potential = prev_n + 1.0
-        delta = x - prev_mean
+        delta = x_or_z - prev_mean
         mean_potential = prev_mean + delta / n_potential
-        delta_potential = x - mean_potential
-        M2_potential = prev_m2 + delta * delta_potential
+        delta_potential = x_or_z - mean_potential
+        m2_potential = prev_m2 + delta * delta_potential
 
         # 4. Conditionally update the stats.
-        #    'n', 'mean', 'm2' now hold the *current* stats for this call.
-        n = self.n_mean_m2_x[:, 0] = torch.where(mask, n_potential, prev_n)
-        mean = self.n_mean_m2_x[:, 1] = torch.where(mask, mean_potential, prev_mean)
-        m2 = self.n_mean_m2_x[:, 2] = torch.where(mask, M2_potential, prev_m2)
+        n = self.n_mean_m2_x_z[:, 0] = torch.where(update_mask, n_potential, prev_n)
+        mean = self.n_mean_m2_x_z[:, 1] = torch.where(
+            update_mask, mean_potential, prev_mean
+        )
+        m2 = self.n_mean_m2_x_z[:, 2] = torch.where(update_mask, m2_potential, prev_m2)
 
-        # 5. Calculate z-score using the *updated* stats from step 4
+        # 5. Calculate z-score using the updated stats.
         variance: Float[Tensor, "TNNplus1"] = m2 / n
         std_dev: Float[Tensor, "TNNplus1"] = torch.sqrt(variance)
-
         is_valid: Bool[Tensor, "TNNplus1"] = n >= 2
         safe_std_dev: Float[Tensor, "TNNplus1"] = torch.clamp(std_dev, min=1e-8)
-
-        raw_z_score: Float[Tensor, "TNNplus1"] = (x - mean) / safe_std_dev
-
-        # This is the z-score output for *all* elements (new and old)
+        raw_z_score: Float[Tensor, "TNNplus1"] = (x_or_z - mean) / safe_std_dev
         z_score_output: Float[Tensor, "TNNplus1"] = torch.where(
             is_valid, raw_z_score, torch.tensor(0.0)
         )
-
-        # 6. Determine the final output
-        #    - If mask is True (new raw value), use the new z_score_output.
-        #    - If mask is False (old z-score or 0), use the original input x.
-        x: Float[Tensor, "TNNplus1"] = torch.where(mask, z_score_output, x)
-
-        # 7. Store the final output as the new 'prev_x' for the next call
-        self.n_mean_m2_x[:, 3] = x
         if self.verbose:
-            print("e. n_mean_m2_x")
-            print(self.n_mean_m2_x)
+            print("e. z_score_output")
+            print(z_score_output)
+
+        pass_through_mask: Bool[Tensor, "TNNplus1"] = (x_or_z == 0) | (x_or_z == prev_z)
+        if self.verbose:
+            print("f. pass_through_mask")
+            print(pass_through_mask)
+
+        # 6. Determine the final output.
+        final_output: Float[Tensor, "TNNplus1"] = torch.where(
+            pass_through_mask, x_or_z, z_score_output
+        )
+
+        # 7. Store the state for the next call.
+        self.n_mean_m2_x_z[:, 3] = torch.where(update_mask, x_or_z, prev_x)
+        self.n_mean_m2_x_z[:, 4] = final_output
+
+        if self.verbose:
+            print("g. Final n_mean_m2_x_z (state)")
+            print(self.n_mean_m2_x_z)
 
         # 8. Return the final, processed tensor
-        return x.clone()
+        return final_output.clone()
 
 
 def barebone_run(verbose: bool = True):
@@ -139,14 +151,14 @@ def barebone_run(verbose: bool = True):
 
     # We add a value at the front to aid computation. This value at index 0
     # will always output 0. Empty in-node slots map to 0, meaning that node.
-    n_mean_m2_x: Float[Tensor, "TNNplus1 4"] = torch.cat(
-        ([torch.zeros(1, 4)] + [net.n_mean_m2_x for net in nets])
+    n_mean_m2_x_z: Float[Tensor, "TNNplus1 5"] = torch.cat(
+        ([torch.zeros(1, 5)] + [net.n_mean_m2_x_z for net in nets])
     )
-    wrs = WelfordRunningStandardizer(n_mean_m2_x.clone(), verbose=True)
+    wrs = WelfordRunningStandardizer(n_mean_m2_x_z, verbose=True)
     if verbose:
-        print("3. n_mean_m2_x")
-        print(n_mean_m2_x)
-        print(n_mean_m2_x.shape)
+        print("3. n_mean_m2_x_z")
+        print(n_mean_m2_x_z)
+        print(n_mean_m2_x_z.shape)
 
     input_nodes_start_indices: Int[Tensor, "POPULATION_SIZE"] = (
         torch.cat((torch.tensor([0]), torch.cumsum(nets_num_nodes[:-1], dim=0))) + 1
@@ -176,7 +188,7 @@ def barebone_run(verbose: bool = True):
         print("7. output_nodes_indices")
         print(output_nodes_indices)
 
-    nodes_indices = torch.arange(1, len(n_mean_m2_x))
+    nodes_indices = torch.arange(1, len(n_mean_m2_x_z))
     mutable_nodes_indices: Int[Tensor, "TNMN"] = nodes_indices[
         ~torch.isin(nodes_indices, input_nodes_indices)
     ]
@@ -255,57 +267,65 @@ def barebone_run(verbose: bool = True):
             print(flat_obs)
             print(flat_obs.shape)
 
-        x: Float[Tensor, "TNNplus1"] = n_mean_m2_x[:, 3]
-        x[input_nodes_indices] = flat_obs
+        out: Float[Tensor, "TNNplus1"] = n_mean_m2_x_z[:, 4].clone()  # z-score
+        out[input_nodes_indices] = flat_obs
         if verbose:
-            print("15. x")
-            print(x)
-            print(x.shape)
+            print("15. out")
+            print(out)
+            print(out.shape)
 
-        x: Float[Tensor, "TNNplus1"] = wrs(x)
+        out: Float[Tensor, "TNNplus1"] = wrs(out)
         if verbose:
-            print("16. x")
-            print(x)
-            print(x.shape)
+            print("16. out")
+            print(out)
+            print(out.shape)
 
         for j in range(max_num_network_passes_per_input):
 
             if verbose:
                 print(f"Iteration {i}, Pass {j}")
-
-            y: Float[Tensor, "TNMN 3"] = torch.gather(
-                x, 0, flat_in_nodes_indices
-            ).reshape(-1, 3)
-            if verbose:
-                print("17. y")
-                print(y)
-                print(y.shape)
-
-            z: Float[Tensor, "TNMN"] = (y * weights).sum(dim=1)
-            if verbose:
-                print("18. z")
-                print(z)
-                print(z.shape)
-
-            if verbose:
-                print("19. num_network_passes_per_input_mask[j]")
+                print("17. num_network_passes_per_input_mask[j]")
                 print(num_network_passes_per_input_mask[j])
 
-            x[mutable_nodes_indices] = torch.where(
-                num_network_passes_per_input_mask[j], z, x[mutable_nodes_indices]
+            mapped_out: Float[Tensor, "TNMN 3"] = torch.gather(
+                out, 0, flat_in_nodes_indices
+            ).reshape(-1, 3)
+            if verbose:
+                print("18. mapped_out")
+                print(mapped_out)
+                print(mapped_out.shape)
+
+            matmuld_mapped_out: Float[Tensor, "TNMN"] = (mapped_out * weights).sum(
+                dim=1
             )
             if verbose:
-                print("20. x")
-                print(x)
-                print(x.shape)
+                print("19. matmuld_mapped_out")
+                print(matmuld_mapped_out)
+                print(matmuld_mapped_out.shape)
+                print("19a. out[mutable_nodes_indices]")
+                print(out[mutable_nodes_indices])
+                print(out[mutable_nodes_indices].shape)
+                print("19b. num_network_passes_per_input_mask[j]")
+                print(num_network_passes_per_input_mask[j])
+                print(num_network_passes_per_input_mask[j].shape)
 
-            x: Float[Tensor, "TNNplus1"] = wrs(x)
+            out[mutable_nodes_indices] = torch.where(
+                num_network_passes_per_input_mask[j],
+                matmuld_mapped_out,
+                out[mutable_nodes_indices],
+            )
             if verbose:
-                print("21. x")
-                print(x)
-                print(x.shape)
+                print("20. out")
+                print(out)
+                print(out.shape)
 
-        actions: Float[Tensor, "POPULATION_SIZE NUM_OUTPUTS"] = x[
+            out: Float[Tensor, "TNNplus1"] = wrs(out)
+            if verbose:
+                print("21. out")
+                print(out)
+                print(out.shape)
+
+        actions: Float[Tensor, "POPULATION_SIZE NUM_OUTPUTS"] = out[
             output_nodes_indices
         ].reshape(POPULATION_SIZE, NUM_OUTPUTS)
         if verbose:
@@ -316,4 +336,4 @@ def barebone_run(verbose: bool = True):
     for i in range(POPULATION_SIZE):
         start = input_nodes_start_indices[i]
         end = None if i + 1 == POPULATION_SIZE else input_nodes_start_indices[i + 1]
-        nets[i].n_mean_m2_x = wrs.n_mean_m2_x[start:end]
+        nets[i].n_mean_m2_x_z = wrs.n_mean_m2_x_z[start:end]
