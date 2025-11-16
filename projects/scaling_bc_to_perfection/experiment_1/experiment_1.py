@@ -4,9 +4,9 @@ Modeling state-action pairs from CartPole-v1 and LunarLander-v2 datasets.
 """
 
 import argparse
-import copy
 import json
 import random
+import sys
 import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -65,11 +65,9 @@ class ExperimentConfig:
     fixed_sigma: float = 1e-3
     adaptive_sigma_init: float = 1e-3
     adaptive_sigma_noise: float = 1e-2
-    # Convergence parameters
-    convergence_window: int = (
-        100  # Number of iterations to check for convergence (lenient for NE)
-    )
-    convergence_threshold: float = 5e-3  # Minimum improvement required
+    # Convergence parameters (patience-based)
+    convergence_patience: int = 200  # Stop if no improvement in this many evaluations
+    convergence_min_improvement: float = 1e-4  # Minimum improvement to count as progress
     # Random seed
     seed: int = 42
 
@@ -78,22 +76,31 @@ class ExperimentConfig:
 class ConvergenceChecker:
     """Check for convergence based on F1 score history."""
 
-    window_size: int = 50
-    threshold: float = 1e-4
+    patience: int = 200  # Number of evaluations without improvement before stopping
+    min_improvement: float = 1e-4  # Minimum improvement to reset patience counter
 
     def is_converged(self, f1_history: list[float]) -> bool:
-        """Check if training has converged."""
-        if len(f1_history) < self.window_size:
+        """Check if training has converged based on best F1 improvement."""
+        # Need at least patience+1 evaluations to compare windows
+        if len(f1_history) <= self.patience:
             return False
 
-        recent: list[float] = f1_history[-self.window_size :]
-        improvement: float = max(recent) - min(recent)
-
-        # Also check if we've reached very high F1
+        # Check if we've reached very high F1
         if f1_history[-1] >= 0.99:
             return True
 
-        return improvement < self.threshold
+        # Find the best F1 in the history (excluding last `patience` evaluations)
+        # and check if we've improved since then
+        before_window: list[float] = f1_history[: -self.patience]
+        if not before_window:
+            return False
+
+        best_before_window: float = max(before_window)
+        best_in_window: float = max(f1_history[-self.patience :])
+
+        # Converged if best F1 hasn't improved meaningfully
+        improvement: float = best_in_window - best_before_window
+        return improvement < self.min_improvement
 
 
 def save_results(dataset_name: str, method_name: str, data: dict) -> None:
@@ -391,7 +398,8 @@ def train_deep_learning(
     f1_history: list[float] = []
 
     convergence_checker: ConvergenceChecker = ConvergenceChecker(
-        window_size=config.convergence_window, threshold=config.convergence_threshold
+        patience=config.convergence_patience,
+        min_improvement=config.convergence_min_improvement,
     )
 
     # Checkpointing paths
@@ -463,9 +471,6 @@ def train_deep_learning(
             # Check convergence
             if convergence_checker.is_converged(f1_history):
                 print(f"  Converged at epoch {epoch}")
-                # Clean up checkpoint file
-                if checkpoint_path.exists():
-                    checkpoint_path.unlink()
                 break
 
         epoch += 1
@@ -473,8 +478,8 @@ def train_deep_learning(
     return loss_history, f1_history
 
 
-class Population:
-    """Population of neural networks for neuroevolution."""
+class BatchedPopulation:
+    """Batched population of neural networks for efficient GPU-parallel neuroevolution."""
 
     def __init__(
         self,
@@ -487,47 +492,119 @@ class Population:
         sigma_noise: float = 1e-2,
     ) -> None:
         self.pop_size: int = pop_size
+        self.input_size: int = input_size
+        self.hidden_size: int = hidden_size
+        self.output_size: int = output_size
         self.adaptive_sigma: bool = adaptive_sigma
         self.sigma_init: float = sigma_init
         self.sigma_noise: float = sigma_noise
 
-        # Create population
-        self.networks: list[MLP] = []
-        self.sigmas: list[dict[str, Tensor]] = []
+        # Initialize batched parameters [pop_size, ...]
+        # Using Xavier initialization like nn.Linear default
+        fc1_std: float = (1.0 / input_size) ** 0.5
+        fc2_std: float = (1.0 / hidden_size) ** 0.5
 
-        for _ in range(pop_size):
-            net: MLP = MLP(input_size, hidden_size, output_size).to(DEVICE)
-            self.networks.append(net)
+        self.fc1_weight: Float[Tensor, "pop_size hidden_size input_size"] = (
+            torch.randn(pop_size, hidden_size, input_size, device=DEVICE) * fc1_std
+        )
+        self.fc1_bias: Float[Tensor, "pop_size hidden_size"] = torch.randn(
+            pop_size, hidden_size, device=DEVICE
+        ) * fc1_std
+        self.fc2_weight: Float[Tensor, "pop_size output_size hidden_size"] = (
+            torch.randn(pop_size, output_size, hidden_size, device=DEVICE) * fc2_std
+        )
+        self.fc2_bias: Float[Tensor, "pop_size output_size"] = torch.randn(
+            pop_size, output_size, device=DEVICE
+        ) * fc2_std
 
-            if adaptive_sigma:
-                sigma_dict: dict[str, Tensor] = {}
-                for name, param in net.named_parameters():
-                    sigma_dict[name] = torch.full_like(param, sigma_init)
-                self.sigmas.append(sigma_dict)
+        # Initialize adaptive sigmas if needed
+        if adaptive_sigma:
+            self.fc1_weight_sigma: Float[
+                Tensor, "pop_size hidden_size input_size"
+            ] = torch.full_like(self.fc1_weight, sigma_init)
+            self.fc1_bias_sigma: Float[Tensor, "pop_size hidden_size"] = (
+                torch.full_like(self.fc1_bias, sigma_init)
+            )
+            self.fc2_weight_sigma: Float[
+                Tensor, "pop_size output_size hidden_size"
+            ] = torch.full_like(self.fc2_weight, sigma_init)
+            self.fc2_bias_sigma: Float[Tensor, "pop_size output_size"] = (
+                torch.full_like(self.fc2_bias, sigma_init)
+            )
+
+    def forward_batch(
+        self, x: Float[Tensor, "N input_size"]
+    ) -> Float[Tensor, "pop_size N output_size"]:
+        """Batched forward pass for all networks in parallel."""
+        # x: [N, input_size] -> expand to [pop_size, N, input_size]
+        x_expanded: Float[Tensor, "pop_size N input_size"] = x.unsqueeze(0).expand(
+            self.pop_size, -1, -1
+        )
+
+        # First layer: [pop_size, N, input_size] @ [pop_size, input_size, hidden_size]
+        # fc1_weight is [pop_size, hidden_size, input_size], need to transpose
+        h: Float[Tensor, "pop_size N hidden_size"] = torch.bmm(
+            x_expanded, self.fc1_weight.transpose(-1, -2)
+        )
+        # Add bias: [pop_size, N, hidden_size] + [pop_size, 1, hidden_size]
+        h = h + self.fc1_bias.unsqueeze(1)
+        # Activation
+        h = torch.tanh(h)
+
+        # Second layer: [pop_size, N, hidden_size] @ [pop_size, hidden_size, output_size]
+        logits: Float[Tensor, "pop_size N output_size"] = torch.bmm(
+            h, self.fc2_weight.transpose(-1, -2)
+        )
+        # Add bias: [pop_size, N, output_size] + [pop_size, 1, output_size]
+        logits = logits + self.fc2_bias.unsqueeze(1)
+
+        return logits
 
     def mutate(self) -> None:
-        """Apply mutations to all networks."""
-        for i, net in enumerate(self.networks):
-            if self.adaptive_sigma:
-                # Adaptive sigma mutation
-                for name, param in net.named_parameters():
-                    # Update sigma
-                    xi: Float[Tensor, "..."] = (
-                        torch.randn_like(param) * self.sigma_noise
-                    )
-                    self.sigmas[i][name] = self.sigmas[i][name] * (1 + xi)
-                    # Apply mutation
-                    eps: Float[Tensor, "..."] = (
-                        torch.randn_like(param) * self.sigmas[i][name]
-                    )
-                    param.data.add_(eps)
-            else:
-                # Fixed sigma mutation
-                for param in net.parameters():
-                    eps: Float[Tensor, "..."] = (
-                        torch.randn_like(param) * self.sigma_init
-                    )
-                    param.data.add_(eps)
+        """Apply mutations to all networks in parallel."""
+        if self.adaptive_sigma:
+            # Adaptive sigma mutation - update sigmas then apply noise
+            # Update fc1_weight sigma
+            xi: Float[Tensor, "pop_size hidden_size input_size"] = (
+                torch.randn_like(self.fc1_weight_sigma) * self.sigma_noise
+            )
+            self.fc1_weight_sigma = self.fc1_weight_sigma * (1 + xi)
+            eps: Float[Tensor, "pop_size hidden_size input_size"] = (
+                torch.randn_like(self.fc1_weight) * self.fc1_weight_sigma
+            )
+            self.fc1_weight = self.fc1_weight + eps
+
+            # Update fc1_bias sigma
+            xi = torch.randn_like(self.fc1_bias_sigma) * self.sigma_noise
+            self.fc1_bias_sigma = self.fc1_bias_sigma * (1 + xi)
+            eps = torch.randn_like(self.fc1_bias) * self.fc1_bias_sigma
+            self.fc1_bias = self.fc1_bias + eps
+
+            # Update fc2_weight sigma
+            xi = torch.randn_like(self.fc2_weight_sigma) * self.sigma_noise
+            self.fc2_weight_sigma = self.fc2_weight_sigma * (1 + xi)
+            eps = torch.randn_like(self.fc2_weight) * self.fc2_weight_sigma
+            self.fc2_weight = self.fc2_weight + eps
+
+            # Update fc2_bias sigma
+            xi = torch.randn_like(self.fc2_bias_sigma) * self.sigma_noise
+            self.fc2_bias_sigma = self.fc2_bias_sigma * (1 + xi)
+            eps = torch.randn_like(self.fc2_bias) * self.fc2_bias_sigma
+            self.fc2_bias = self.fc2_bias + eps
+        else:
+            # Fixed sigma mutation
+            self.fc1_weight = self.fc1_weight + torch.randn_like(
+                self.fc1_weight
+            ) * self.sigma_init
+            self.fc1_bias = self.fc1_bias + torch.randn_like(
+                self.fc1_bias
+            ) * self.sigma_init
+            self.fc2_weight = self.fc2_weight + torch.randn_like(
+                self.fc2_weight
+            ) * self.sigma_init
+            self.fc2_bias = self.fc2_bias + torch.randn_like(
+                self.fc2_bias
+            ) * self.sigma_init
 
     def evaluate(
         self,
@@ -537,31 +614,69 @@ class Population:
         num_classes: int = 2,
         num_f1_samples: int = 10,
     ) -> Float[Tensor, " pop_size"]:
-        """Evaluate fitness of all networks. Returns positive CE (lower is better) or F1 (higher is better)."""
-        fitness_scores: list[float] = []
-
+        """Evaluate fitness of all networks in parallel."""
         with torch.no_grad():
-            for net in self.networks:
-                net.eval()
-                if fitness_type == "cross_entropy":
-                    # Positive cross-entropy (lower is better)
-                    ce: Float[Tensor, ""] = compute_cross_entropy(
-                        net, observations, actions
-                    )
-                    fitness: float = ce.item()
-                else:  # macro_f1
-                    fitness = compute_macro_f1(
-                        net, observations, actions, num_f1_samples, num_classes
-                    )
-                fitness_scores.append(fitness)
+            # Get logits for all networks: [pop_size, N, output_size]
+            all_logits: Float[Tensor, "pop_size N output_size"] = self.forward_batch(
+                observations
+            )
 
-        return torch.tensor(fitness_scores, dtype=torch.float32, device=DEVICE)
+            if fitness_type == "cross_entropy":
+                # Compute cross-entropy for all networks in parallel
+                # actions: [N] -> expand to [pop_size, N]
+                actions_expanded: Int[Tensor, "pop_size N"] = actions.unsqueeze(
+                    0
+                ).expand(self.pop_size, -1)
+
+                # Reshape for cross_entropy: [pop_size * N, output_size] and [pop_size * N]
+                flat_logits: Float[Tensor, "pop_sizexN output_size"] = all_logits.view(
+                    -1, self.output_size
+                )
+                flat_actions: Int[Tensor, " pop_sizexN"] = actions_expanded.reshape(-1)
+
+                # Compute per-sample CE then reshape and mean per network
+                per_sample_ce: Float[Tensor, " pop_sizexN"] = F.cross_entropy(
+                    flat_logits, flat_actions, reduction="none"
+                )
+                per_network_ce: Float[Tensor, "pop_size N"] = per_sample_ce.view(
+                    self.pop_size, -1
+                )
+                fitness: Float[Tensor, " pop_size"] = per_network_ce.mean(dim=1)
+            else:  # macro_f1
+                # F1 requires sampling and sklearn, so we need to loop
+                # But we can still batch the probability computation
+                all_probs: Float[Tensor, "pop_size N output_size"] = F.softmax(
+                    all_logits, dim=-1
+                )
+
+                fitness_scores: list[float] = []
+                for i in range(self.pop_size):
+                    probs_i: Float[Tensor, "N output_size"] = all_probs[i]
+                    f1_trials: list[float] = []
+                    for _ in range(num_f1_samples):
+                        sampled: Int[Tensor, " N"] = torch.multinomial(
+                            probs_i, num_samples=1
+                        ).squeeze(-1)
+                        f1_val: float = f1_score(
+                            actions.cpu().numpy(),
+                            sampled.cpu().numpy(),
+                            average="macro",
+                            labels=list(range(num_classes)),
+                            zero_division=0.0,
+                        )
+                        f1_trials.append(f1_val)
+                    fitness_scores.append(float(np.mean(f1_trials)))
+                fitness = torch.tensor(
+                    fitness_scores, dtype=torch.float32, device=DEVICE
+                )
+
+        return fitness
 
     def select_simple_ga(
         self, fitness: Float[Tensor, " pop_size"], minimize: bool = False
     ) -> None:
-        """Simple GA selection: top 50% survive and duplicate."""
-        # For minimization (CE), we want lowest values to survive
+        """Simple GA selection: top 50% survive and duplicate (vectorized)."""
+        # Sort by fitness
         sorted_indices: Int[Tensor, " pop_size"] = torch.argsort(
             fitness, descending=not minimize
         )
@@ -570,22 +685,35 @@ class Population:
         num_survivors: int = self.pop_size // 2
         survivor_indices: Int[Tensor, " num_survivors"] = sorted_indices[:num_survivors]
 
-        # Replace bottom 50% with copies of top 50%
-        loser_indices: Int[Tensor, " num_losers"] = sorted_indices[num_survivors:]
+        # Create mapping: each loser gets replaced by a survivor
+        # Loser i gets survivor[i % num_survivors]
+        num_losers: int = self.pop_size - num_survivors
+        replacement_indices: Int[Tensor, " num_losers"] = survivor_indices[
+            torch.arange(num_losers, device=DEVICE) % num_survivors
+        ]
 
-        for i, loser_idx in enumerate(loser_indices):
-            survivor_idx: int = survivor_indices[i % num_survivors].item()
-            self.networks[loser_idx].load_state_dict(
-                copy.deepcopy(self.networks[survivor_idx].state_dict())
-            )
-            if self.adaptive_sigma:
-                self.sigmas[loser_idx] = copy.deepcopy(self.sigmas[survivor_idx])
+        # Full new indices: survivors keep their params, losers get survivor params
+        new_indices: Int[Tensor, " pop_size"] = torch.cat(
+            [survivor_indices, replacement_indices]
+        )
+
+        # Reorder parameters using advanced indexing (this creates copies)
+        self.fc1_weight = self.fc1_weight[new_indices].clone()
+        self.fc1_bias = self.fc1_bias[new_indices].clone()
+        self.fc2_weight = self.fc2_weight[new_indices].clone()
+        self.fc2_bias = self.fc2_bias[new_indices].clone()
+
+        if self.adaptive_sigma:
+            self.fc1_weight_sigma = self.fc1_weight_sigma[new_indices].clone()
+            self.fc1_bias_sigma = self.fc1_bias_sigma[new_indices].clone()
+            self.fc2_weight_sigma = self.fc2_weight_sigma[new_indices].clone()
+            self.fc2_bias_sigma = self.fc2_bias_sigma[new_indices].clone()
 
     def select_simple_es(
         self, fitness: Float[Tensor, " pop_size"], minimize: bool = False
     ) -> None:
-        """Simple ES selection: weighted combination of all networks."""
-        # Standardize fitness (negate for minimization so lower values get higher weights)
+        """Simple ES selection: weighted combination of all networks (vectorized)."""
+        # Standardize fitness
         if minimize:
             fitness_std: Float[Tensor, " pop_size"] = (-fitness - (-fitness).mean()) / (
                 fitness.std() + 1e-8
@@ -594,37 +722,124 @@ class Population:
             fitness_std = (fitness - fitness.mean()) / (fitness.std() + 1e-8)
         weights: Float[Tensor, " pop_size"] = F.softmax(fitness_std, dim=0)
 
-        # Create weighted average network
-        avg_state_dict: dict[str, Tensor] = {}
-        for name, _ in self.networks[0].named_parameters():
-            weighted_sum: Tensor = sum(
-                w * net.state_dict()[name] for w, net in zip(weights, self.networks)
-            )
-            avg_state_dict[name] = weighted_sum
+        # Compute weighted average for each parameter tensor
+        # weights: [pop_size] -> reshape for broadcasting
+        # For fc1_weight [pop_size, hidden_size, input_size]:
+        # weights.view(pop_size, 1, 1) * fc1_weight -> weighted params
+        # sum over pop_size dim -> [hidden_size, input_size]
+        # then expand back to [pop_size, hidden_size, input_size]
 
-        # Average sigma if adaptive
-        avg_sigma_dict: dict[str, Tensor] = {}
+        w_fc1: Float[Tensor, "pop_size 1 1"] = weights.view(-1, 1, 1)
+        avg_fc1_weight: Float[Tensor, "hidden_size input_size"] = (
+            w_fc1 * self.fc1_weight
+        ).sum(dim=0)
+        self.fc1_weight = avg_fc1_weight.unsqueeze(0).expand(self.pop_size, -1, -1).clone()
+
+        w_fc1_bias: Float[Tensor, "pop_size 1"] = weights.view(-1, 1)
+        avg_fc1_bias: Float[Tensor, " hidden_size"] = (
+            w_fc1_bias * self.fc1_bias
+        ).sum(dim=0)
+        self.fc1_bias = avg_fc1_bias.unsqueeze(0).expand(self.pop_size, -1).clone()
+
+        w_fc2: Float[Tensor, "pop_size 1 1"] = weights.view(-1, 1, 1)
+        avg_fc2_weight: Float[Tensor, "output_size hidden_size"] = (
+            w_fc2 * self.fc2_weight
+        ).sum(dim=0)
+        self.fc2_weight = avg_fc2_weight.unsqueeze(0).expand(self.pop_size, -1, -1).clone()
+
+        w_fc2_bias: Float[Tensor, "pop_size 1"] = weights.view(-1, 1)
+        avg_fc2_bias: Float[Tensor, " output_size"] = (
+            w_fc2_bias * self.fc2_bias
+        ).sum(dim=0)
+        self.fc2_bias = avg_fc2_bias.unsqueeze(0).expand(self.pop_size, -1).clone()
+
         if self.adaptive_sigma:
-            for name in self.sigmas[0].keys():
-                avg_sigma_dict[name] = sum(
-                    w * sigma[name] for w, sigma in zip(weights, self.sigmas)
-                )
+            avg_fc1_weight_sigma: Float[Tensor, "hidden_size input_size"] = (
+                w_fc1 * self.fc1_weight_sigma
+            ).sum(dim=0)
+            self.fc1_weight_sigma = (
+                avg_fc1_weight_sigma.unsqueeze(0).expand(self.pop_size, -1, -1).clone()
+            )
 
-        # Duplicate to entire population
-        for i in range(self.pop_size):
-            self.networks[i].load_state_dict(copy.deepcopy(avg_state_dict))
-            if self.adaptive_sigma:
-                self.sigmas[i] = copy.deepcopy(avg_sigma_dict)
+            avg_fc1_bias_sigma: Float[Tensor, " hidden_size"] = (
+                w_fc1_bias * self.fc1_bias_sigma
+            ).sum(dim=0)
+            self.fc1_bias_sigma = (
+                avg_fc1_bias_sigma.unsqueeze(0).expand(self.pop_size, -1).clone()
+            )
 
-    def get_best_network(
+            avg_fc2_weight_sigma: Float[Tensor, "output_size hidden_size"] = (
+                w_fc2 * self.fc2_weight_sigma
+            ).sum(dim=0)
+            self.fc2_weight_sigma = (
+                avg_fc2_weight_sigma.unsqueeze(0).expand(self.pop_size, -1, -1).clone()
+            )
+
+            avg_fc2_bias_sigma: Float[Tensor, " output_size"] = (
+                w_fc2_bias * self.fc2_bias_sigma
+            ).sum(dim=0)
+            self.fc2_bias_sigma = (
+                avg_fc2_bias_sigma.unsqueeze(0).expand(self.pop_size, -1).clone()
+            )
+
+    def get_best_network_state(
         self, fitness: Float[Tensor, " pop_size"], minimize: bool = False
-    ) -> MLP:
-        """Get the best performing network."""
+    ) -> tuple[
+        Float[Tensor, "hidden_size input_size"],
+        Float[Tensor, " hidden_size"],
+        Float[Tensor, "output_size hidden_size"],
+        Float[Tensor, " output_size"],
+    ]:
+        """Get the parameters of the best performing network."""
         if minimize:
             best_idx: int = torch.argmin(fitness).item()
         else:
             best_idx: int = torch.argmax(fitness).item()
-        return self.networks[best_idx]
+        return (
+            self.fc1_weight[best_idx],
+            self.fc1_bias[best_idx],
+            self.fc2_weight[best_idx],
+            self.fc2_bias[best_idx],
+        )
+
+    def create_best_mlp(
+        self, fitness: Float[Tensor, " pop_size"], minimize: bool = False
+    ) -> MLP:
+        """Create an MLP from the best network's parameters."""
+        fc1_w, fc1_b, fc2_w, fc2_b = self.get_best_network_state(fitness, minimize)
+        mlp: MLP = MLP(self.input_size, self.hidden_size, self.output_size).to(DEVICE)
+        mlp.fc1.weight.data = fc1_w
+        mlp.fc1.bias.data = fc1_b
+        mlp.fc2.weight.data = fc2_w
+        mlp.fc2.bias.data = fc2_b
+        return mlp
+
+    def get_state_dict(self) -> dict[str, Tensor]:
+        """Get state dict for checkpointing."""
+        state: dict[str, Tensor] = {
+            "fc1_weight": self.fc1_weight,
+            "fc1_bias": self.fc1_bias,
+            "fc2_weight": self.fc2_weight,
+            "fc2_bias": self.fc2_bias,
+        }
+        if self.adaptive_sigma:
+            state["fc1_weight_sigma"] = self.fc1_weight_sigma
+            state["fc1_bias_sigma"] = self.fc1_bias_sigma
+            state["fc2_weight_sigma"] = self.fc2_weight_sigma
+            state["fc2_bias_sigma"] = self.fc2_bias_sigma
+        return state
+
+    def load_state_dict(self, state: dict[str, Tensor]) -> None:
+        """Load state dict from checkpoint."""
+        self.fc1_weight = state["fc1_weight"]
+        self.fc1_bias = state["fc1_bias"]
+        self.fc2_weight = state["fc2_weight"]
+        self.fc2_bias = state["fc2_bias"]
+        if self.adaptive_sigma and "fc1_weight_sigma" in state:
+            self.fc1_weight_sigma = state["fc1_weight_sigma"]
+            self.fc1_bias_sigma = state["fc1_bias_sigma"]
+            self.fc2_weight_sigma = state["fc2_weight_sigma"]
+            self.fc2_bias_sigma = state["fc2_bias_sigma"]
 
 
 def train_neuroevolution(
@@ -641,7 +856,7 @@ def train_neuroevolution(
     adaptive_sigma: bool = False,
     fitness_type: str = "cross_entropy",
 ) -> tuple[list[float], list[float]]:
-    """Train using Neuroevolution."""
+    """Train using Neuroevolution with batched GPU operations."""
     train_obs_gpu: Float[Tensor, "train_size input_size"] = train_obs.to(DEVICE)
     train_act_gpu: Int[Tensor, " train_size"] = train_act.to(DEVICE)
     test_obs_gpu: Float[Tensor, "test_size input_size"] = test_obs.to(DEVICE)
@@ -656,7 +871,7 @@ def train_neuroevolution(
     # Determine if we're minimizing (CE) or maximizing (F1)
     minimize: bool = fitness_type == "cross_entropy"
 
-    population: Population = Population(
+    population: BatchedPopulation = BatchedPopulation(
         input_size,
         config.hidden_size,
         output_size,
@@ -670,7 +885,8 @@ def train_neuroevolution(
     f1_history: list[float] = []
 
     convergence_checker: ConvergenceChecker = ConvergenceChecker(
-        window_size=config.convergence_window, threshold=config.convergence_threshold
+        patience=config.convergence_patience,
+        min_improvement=config.convergence_min_improvement,
     )
 
     # Checkpointing paths
@@ -685,11 +901,15 @@ def train_neuroevolution(
         f1_history = checkpoint["f1_history"]
         start_gen = checkpoint["generation"] + 1
 
-        # Restore population state
-        for i, state_dict in enumerate(checkpoint["population_states"]):
-            population.networks[i].load_state_dict(state_dict)
-        if adaptive_sigma and "population_sigmas" in checkpoint:
-            population.sigmas = checkpoint["population_sigmas"]
+        # Restore population state (new batched format)
+        if "population_state" in checkpoint:
+            population.load_state_dict(checkpoint["population_state"])
+        else:
+            # Legacy checkpoint format - skip restoration
+            print("  Warning: Old checkpoint format detected, starting fresh")
+            start_gen = 0
+            fitness_history = []
+            f1_history = []
 
         print(f"  Resumed at generation {start_gen}")
 
@@ -707,12 +927,12 @@ def train_neuroevolution(
         # Mutation
         population.mutate()
 
-        # Evaluation
+        # Evaluation (batched on GPU)
         fitness: Float[Tensor, " pop_size"] = population.evaluate(
             batch_obs, batch_act, fitness_type, output_size, config.num_f1_samples
         )
 
-        # Selection
+        # Selection (vectorized)
         if algorithm == "simple_ga":
             population.select_simple_ga(fitness, minimize=minimize)
         else:  # simple_es
@@ -727,7 +947,7 @@ def train_neuroevolution(
 
         # Evaluate on test set
         if gen % config.eval_frequency == 0:
-            best_net: MLP = population.get_best_network(fitness, minimize=minimize)
+            best_net: MLP = population.create_best_mlp(fitness, minimize=minimize)
             best_net.eval()
             with torch.no_grad():
                 f1: float = compute_macro_f1(
@@ -756,20 +976,13 @@ def train_neuroevolution(
                     "generation": gen,
                     "fitness_history": fitness_history,
                     "f1_history": f1_history,
-                    "population_states": [
-                        net.state_dict() for net in population.networks
-                    ],
+                    "population_state": population.get_state_dict(),
                 }
-                if adaptive_sigma:
-                    checkpoint_data["population_sigmas"] = population.sigmas
                 torch.save(checkpoint_data, checkpoint_path)
 
             # Check convergence
             if convergence_checker.is_converged(f1_history):
                 print(f"  Converged at generation {gen}")
-                # Clean up checkpoint file
-                if checkpoint_path.exists():
-                    checkpoint_path.unlink()
                 break
 
         gen += 1
@@ -962,4 +1175,18 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    exit_code: int = 0
+    try:
+        main()
+    except Exception as e:
+        print(f"\nError: {e}")
+        import traceback
+
+        traceback.print_exc()
+        exit_code = 1
+    finally:
+        # Ensure cleanup even on error
+        plt.close("all")
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        sys.exit(exit_code)

@@ -1,0 +1,25 @@
+# Experiment 1: Comparing Deep Learning and Neuroevolution
+# Each line is a command to run
+# Lines starting with # are comments
+
+# CartPole experiments
+python -u experiment_1.py --dataset cartpole --method SGD
+python -u experiment_1.py --dataset cartpole --method simple_ga_fixed_CE
+python -u experiment_1.py --dataset cartpole --method simple_ga_fixed_F1
+python -u experiment_1.py --dataset cartpole --method simple_ga_adaptive_CE
+python -u experiment_1.py --dataset cartpole --method simple_ga_adaptive_F1
+python -u experiment_1.py --dataset cartpole --method simple_es_fixed_CE
+python -u experiment_1.py --dataset cartpole --method simple_es_fixed_F1
+python -u experiment_1.py --dataset cartpole --method simple_es_adaptive_CE
+python -u experiment_1.py --dataset cartpole --method simple_es_adaptive_F1
+
+# LunarLander experiments
+python -u experiment_1.py --dataset lunarlander --method SGD
+python -u experiment_1.py --dataset lunarlander --method simple_ga_fixed_CE
+python -u experiment_1.py --dataset lunarlander --method simple_ga_fixed_F1
+python -u experiment_1.py --dataset lunarlander --method simple_ga_adaptive_CE
+python -u experiment_1.py --dataset lunarlander --method simple_ga_adaptive_F1
+python -u experiment_1.py --dataset lunarlander --method simple_es_fixed_CE
+python -u experiment_1.py --dataset lunarlander --method simple_es_fixed_F1
+python -u experiment_1.py --dataset lunarlander --method simple_es_adaptive_CE
+python -u experiment_1.py --dataset lunarlander --method simple_es_adaptive_F1
