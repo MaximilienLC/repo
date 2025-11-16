@@ -1,48 +1,112 @@
-# /projects/scaling bc to perfection/
+- [Prompts](#prompts)
+- [Overview](#overview)
+  - [Motivation](#motivation)
+  - [Neuroevolution](#neuroevolution)
+- [I. Comparing Deep Learning and Neuroevolution in low-dimensional tasks](#i-comparing-deep-learning-and-neuroevolution-in-low-dimensional-tasks)
+  - [1. Modeling state-action pairs](#1-modeling-state-action-pairs)
+    - [Experiment 1](#experiment-1)
+      - [Data](#data)
+      - [Network setup](#network-setup)
+      - [Optimization/Evaluation functions](#optimizationevaluation-functions)
+      - [Neuroevolution algorithms](#neuroevolution-algorithms)
+      - [Optimization](#optimization)
+      - [Plots](#plots)
 
-- [/projects/scaling bc to perfection/](#projectsscaling-bc-to-perfection)
-  - [Project Proposal](#project-proposal)
+# Prompts
 
+Never run any model optimization as a background task.
 
-## Project Proposal
+`torch`, `torchvision` and `torchaudio` are installed locally with GPU-support.
+Make sure that all heavy tensor operations are ran on the GPU.
 
-In this project, we aim to run scaling law analyses — investigations into how key performance metrics evolve as variables like dataset size, model capacity and FLOPs increase — in behaviour cloning tasks.
+# Overview
 
-More specifically, we aim to perform these analyses on metrics that quantify perfection, i.e. that can saturate. This is somewhat in contrast with typical metrics in the scaling law literature — such as perplexity — that generally do not saturate.
+## Motivation
 
-We wish to do so in order to closely observe behaviour at the edge of saturation. Indeed, we hypothesize that several properties of deep learning (DL) harm its ability to accurately model behaviour. We list out some of these properties and their impact:
+Deep Learning methods have pretty much yielded the entirety modern progress in AI. However, we hypothesize that several of its properties (e.g., differentiability constraint, data hyperdependency, data hunger, lack of causal abstraction, overparameterization bias & representation entanglement) make it, by itself, a sub-optimal choice for various tasks. All computational methods have strengths and weaknesses and we believe there is unexplored value to be found in mixing them. 
 
-1. The differentiability constraint.
-DL methods, being gradient-based, can only optimize over differentiable functions - a relatively narrow subspace of computable functions. This constraint demands of practitioners to proxy further from their desired objective, which leads to discrepancies between training success and behavioural fidelity.
+For instance, we believe Deep Learning-only methods to be suboptimal for complex behaviour cloning, which we focus on in this project.
 
-2. Data hyperdependency
-DL model updates are fully data-driven, leaving no room for exploration of parameters in non-data space.
+## Neuroevolution
 
-3. Data hunger
-DL methods are well-known to require large amounts of data to perform well. Their generalization relies heavily on distributional coverage, leading to overfitting on frequent patterns and poor handling of rare or unseen ones.
+Neuroevolution is a distant cousin of Deep Learning. They both optimize artifical neural networks, however, the former makes use of evolutionary algorithms to optimize the networks.
 
-4. Lack of causal abstraction
-DL models learn statistical associations rather than causal structures (Li et al., 2024) (at least not directly), limiting their ability to generalize under distributional shifts or to infer intent behind observed behaviour.
+Neuroevolution methods have several advantageous properties over Deep Learning (e.g. can optimize any functions whose outputs can be ranked, explicit exploration mechanisms that promote discovery beyond data-implied regions, more leeway to evolve modular structures that exhibit causal abstraction and reuse). However, their sole reliance on the selection mechanism to propagate information derived from data typically results in less efficient scaling compared to DL's backpropagation.
 
-5. Overparameterization bias
-While overparameterization aids optimization, it appears to encourage memorization and smooth interpolation over true understanding (Djiré et al., 2025), reducing robustness in low-data or out-of-distribution regimes.
+# I. Comparing Deep Learning and Neuroevolution in low-dimensional tasks
 
-6. Representation entanglement
-Internal representations in deep models are highly distributed and entangled (Kumar et al., 2025), making them harder to interpret or manipulate, and hindering modular reuse of learned components.
+Given its relatively relaxed requirements, we believe that as long as mastering a behaviour cloning task does not require encoding too much information, Neuroevolution methods ought to outperform equally well-calibrated [*] Deep Learning methods in perfecting behaviour cloning tasks.
 
-We propose to attempt to observe this failure to saturate by benchmarking DL methods against genetic algorithms (GAs).
+We set ourselves out to observe such phenomena.
 
-GAs, in contrast, can:
-- optimize over any space of functions which outputs can be ranked
-- incorporate explicit exploration mechanisms (mutation, crossover) that promote discovery beyond data-implied regions
-- have more leeway to evolve modular, interpretable structures that exhibit causal abstraction and reuse
+[*] We say "equally well-calibrated" because Neuroevolution is relatively unexplored compared to Deep Learning. For instance, Neuroevolution methods do not have their own, widely acclaimed version of AdamW, layer-norm, etc. In order to fairly compare both methods, we will need to experiment with equivalently barebone Deep Learning methods.
 
-However, GAs' sole reliance on the selection mechanism to propagate information derived from data typically results in less efficient scaling compared to DL's backpropagation. To overcome this limitation, we thus propose to also explore a hybrid approach: leveraging the representational power and information-rich outputs of DL models as inputs to GAs. We hypothesize that this integration will enable us to explore beyond the confines of gradient-based optimization, while still benefiting from its efficiency.
+## 1. Modeling state-action pairs
 
----
+We begin with the task of `modeling state-action pair` datasets created from pre-trained Reinforcement Learning policies available on HuggingFace.
 
-We will first wish to look for cases where DL methods are less capable of saturating metrics than GAs. In order to do so, we plan to work our way up from simple 1) environments, e.g. classic control tasks in OpenAI Gym 2) behaviour targets, e.g. trained ML policies 3) models, e.g. double-layer MLPs and 4) optimization objectives, e.g. output classification; and work our way up to more complexity if needs be.
+### Experiment 1
 
-Metrics will vary on a per-task basis.
+#### Data
 
-When/If we find such cases, we then plan to experiment with the hybrid method and observe its behaviour towards saturation with respect to both previously explored underlying methods.
+We begin with these two datasets derived from a PPO policy:
+- `https://huggingface.co/datasets/NathanGavenski/CartPole-v1`
+- `https://huggingface.co/datasets/NathanGavenski/LunarLander-v2`
+
+* Input space: 4 observations for `CartPole`, 8 for `LunarLander`.
+
+* Output space: Both datasets' action space is discrete. `CartPole`'s possible actions are 0 and 1, `LunarLander`'s are 0,1,2,3.
+
+* Size: 500k for `CartPole`, 384k for `LunarLander`
+
+* Processing: We shuffle the dataset, and start by training on 90% of it and test on the remaining 10%. We use batches of size 32.
+
+#### Network setup
+
+We begin with all methods optimizing over a double layer-MLP with hidden layer of size 50 and `tanh` activations. In the output layer, we set one neuron per possible action. Raw logits are converted into a probability distribution with a standard softmax.
+
+#### Optimization/Evaluation functions
+
+We optimize, for both Neuroevolution and Deep Learning, over the `cross entropy`. In order to quantify behaviour cloning perfection, comparing both methods' `macro F1 score` appears more pertinent. We thus use the `macro F1 score` as an evaluation metric.
+
+Given that Neuroevolution can use the `macro F1 score` as a fitness score, we propose to (separately) also have it optimize over it.
+
+In order to increase our fidelity when computing the `macro F1 score` (for both Neuroevolution optimization and evaluation), we run 10 sampling trials from the distribution generated by the networks.
+
+#### Neuroevolution algorithms
+
+We characterize every iteration of these algorithms by three stages:
+- `variation`: agents in the population are `randomly perturbed`.
+- `evaluation`: agents `perform a given task` and are `assigned a fitness score`.
+- `selection`: given the `fitness scores`, certain low performing agents are replaced by duplicates of high performing agents.
+
+We implement the two following algorithms:
+- `simple_ga`: during selection, agents with the `top 50% fitness scores` are `selected and duplicated`, taking over the population slots of the lower 50% scoring agents.
+- `simple_es`: during selection, the population's fitness scores are standardized and turned into a probability distribution through a softmax operation. A single agent is then created through a weighted sum of existing agents' parameters. It is then duplicated over the entire population size.
+
+#### Optimization
+
+We pick SGD with the default `torch` learning rate (`1e-3`) for Deep Learning.
+
+We experiment with two optimization modes for neuroevolution methods:
+1. Every generation, `∀θᵢ, εᵢ ~ N(0, 1e-3), θᵢ += εᵢ` <=> noise sampled from the `same gaussian distribution` is applied across network parameters `θ`.
+2. Begin optimization by setting `∀θᵢ, σᵢ = 1e-3`. Every generation, `∀θᵢ, ξᵢ ~ N(0, 1e-2), σᵢ ×= (1 + ξᵢ), εᵢ ~ N(0, σᵢ²), θᵢ += εᵢ` <=> noise sampled from a gaussian distribution with `shifting per-parameter standard deviation σ` is applied across network parameters `θ`. The shifting of `σ` is driven by applying noise sampled from the `same gaussian distribution` (as in the first method).
+
+We believe the second mode to more closely resemble SGD in that weight update distributions have the opportunity of being weight-specific.
+
+#### Plots
+
+We generate the following plots for each dataset:
+
+1. **Training Loss Curves (CE-optimizing methods only)**: Line plot showing cross-entropy loss vs. Runtime % for methods optimizing cross-entropy:
+   - SGD (DL)
+   - simple_ga + fixed_sigma + CE
+   - simple_ga + adaptive_sigma + CE
+   - simple_es + fixed_sigma + CE
+   - simple_es + adaptive_sigma + CE
+
+   Note: F1-optimizing NE methods are excluded from this plot as they optimize a different objective.
+
+2. **Test Macro F1 Score Curves**: Line plot showing macro F1 score on the test set vs. Runtime % for all 9 methods. This is the primary evaluation metric. The Runtime % x-axis (0-100%) allows direct comparison of methods regardless of their total number of iterations/generations.
+
+3. **Final Performance Comparison**: Bar chart comparing final macro F1 scores across all methods, with numerical values displayed above each bar.
