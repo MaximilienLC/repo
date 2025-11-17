@@ -31,7 +31,7 @@ class Orchestrator:
         self.root = root
         self.root.title("Experiment Orchestrator")
 
-        self.tasks: list[Task] = []
+        self.tasks: dict[str, list[Task]] = {"local": [], "ginkgo": [], "rorqual": []}
         self.task_counter: int = 0
         self.max_concurrent: int = 1
         self.update_queue: queue.Queue = queue.Queue()
@@ -279,16 +279,14 @@ class Orchestrator:
         list_frame.rowconfigure(0, weight=1)
 
         # Treeview for tasks
-        columns = ("ID", "Backend", "Status", "Command")
+        columns = ("ID", "Status", "Command")
         self.tree = ttk.Treeview(
             list_frame, columns=columns, show="headings", selectmode="extended"
         )
         self.tree.heading("ID", text="ID")
-        self.tree.heading("Backend", text="Backend")
         self.tree.heading("Status", text="Status")
         self.tree.heading("Command", text="Command")
         self.tree.column("ID", width=40, anchor="center")
-        self.tree.column("Backend", width=80, anchor="center")
         self.tree.column("Status", width=80, anchor="center")
         self.tree.column("Command", width=400)
 
@@ -403,15 +401,23 @@ class Orchestrator:
                 self.selected_task_var.set(f"Selected: Task #{task_id}")
 
                 # Show output for this task
-                for task in self.tasks:
-                    if task.id == task_id:
-                        print(
-                            f"[DEBUG] Selected task {task_id}, buffer has {len(task.output_buffer)} lines"
-                        )
-                        self._full_refresh_output_view(task)
-                        self.displayed_output_task_id = task.id
-                        self.displayed_output_line_count = len(task.output_buffer)
+                found_task = None
+                for task_list in self.tasks.values():
+                    for task in task_list:
+                        if task.id == task_id:
+                            found_task = task
+                            break
+                    if found_task:
                         break
+
+                if found_task:
+                    print(
+                        f"[DEBUG] Selected task {task_id}, buffer has {len(found_task.output_buffer)} lines"
+                    )
+                    self._full_refresh_output_view(found_task)
+                    self.displayed_output_task_id = found_task.id
+                    self.displayed_output_line_count = len(found_task.output_buffer)
+
             else:
                 # Multiple selection
                 task_ids = [int(self.tree.item(s)["values"][0]) for s in selection]
@@ -508,7 +514,8 @@ class Orchestrator:
             "task_counter": self.task_counter,
             "last_task_file_path": self.last_task_file_path,
         }
-        for task in self.tasks:
+        all_tasks = [task for task_list in self.tasks.values() for task in task_list]
+        for task in all_tasks:
             # Get log path from backend if available
             log_path = task.log_file_path
             if (
@@ -558,16 +565,20 @@ class Orchestrator:
 
             self.task_counter = state.get("task_counter", 0)
             self.last_task_file_path = state.get("last_task_file_path")
-            loaded_tasks = []
+
+            # Clear existing tasks
+            self.tasks = {"local": [], "ginkgo": [], "rorqual": []}
+
             for task_data in state.get("tasks", []):
                 status_val = task_data["status"]
                 backend_val = task_data["backend_type"]
+                backend_type = BackendType(backend_val)
 
                 task = Task(
                     id=task_data["id"],
                     command=task_data["command"],
                     status=TaskStatus(status_val),
-                    backend_type=BackendType(backend_val),
+                    backend_type=backend_type,
                     remote_workdir=task_data.get("remote_workdir", ""),
                     tmux_session=task_data.get("tmux_session"),
                     log_file_path=task_data.get("log_file_path"),
@@ -580,13 +591,15 @@ class Orchestrator:
                     slurm_data["ssh_config"] = SSHConfig(**slurm_data["ssh_config"])
                     task.slurm_config = SLURMConfig(**slurm_data)
 
-                loaded_tasks.append(task)
+                env_name = self._get_env_name_from_backend_type(backend_type)
+                if env_name != "unknown":
+                    self.tasks[env_name].append(task)
 
-            self.tasks = loaded_tasks
             self._reconnect_running_tasks()
             self._update_tree()
+            loaded_count = sum(len(v) for v in self.tasks.values())
             self.status_var.set(
-                f"Loaded {len(self.tasks)} tasks from previous session."
+                f"Loaded {loaded_count} tasks from previous session."
             )
 
         except Exception as e:
@@ -600,7 +613,8 @@ class Orchestrator:
         reconnected_count = 0
         failed_count = 0
 
-        for task in self.tasks:
+        all_tasks = [task for task_list in self.tasks.values() for task in task_list]
+        for task in all_tasks:
             if task.status == TaskStatus.RUNNING:
                 try:
                     backend = None
@@ -684,6 +698,16 @@ class Orchestrator:
                 f"Reconnected {reconnected_count} tasks, {failed_count} sessions lost"
             )
 
+    def _get_env_name_from_backend_type(self, backend_type: BackendType) -> str:
+        """Get environment name from backend type."""
+        if backend_type == BackendType.LOCAL:
+            return "local"
+        elif backend_type == BackendType.SSH:
+            return "ginkgo"
+        elif backend_type == BackendType.SLURM:
+            return "rorqual"
+        return "unknown"
+
     def _get_current_ssh_config(self) -> SSHConfig:
         """Get SSH config from GUI fields."""
         return SSHConfig(
@@ -710,6 +734,7 @@ class Orchestrator:
         self.current_remote_dropbox = ""
         self.env_label.config(text="Current: local")
         self.status_var.set("Environment: local")
+        self._update_tree()
 
     def _preset_ginkgo(self) -> None:
         """Set preset for ginkgo (lab machine via SSH)."""
@@ -728,6 +753,7 @@ class Orchestrator:
             messagebox.showwarning(
                 "Missing", "paramiko not installed. Run: pip install paramiko"
             )
+        self._update_tree()
 
     def _preset_rorqual(self) -> None:
         """Set preset for rorqual (SLURM cluster)."""
@@ -752,6 +778,7 @@ class Orchestrator:
             messagebox.showwarning(
                 "Missing", "paramiko not installed. Run: pip install paramiko"
             )
+        self._update_tree()
 
     def _connect_to_remote(self) -> None:
         """Establish persistent SSH connection with MFA support."""
@@ -843,13 +870,7 @@ class Orchestrator:
 
     def _get_env_name(self) -> str:
         """Get current environment name."""
-        if self.current_backend_type == BackendType.LOCAL:
-            return "local"
-        elif self.current_backend_type == BackendType.SSH:
-            return "ginkgo"
-        elif self.current_backend_type == BackendType.SLURM:
-            return "rorqual"
-        return "unknown"
+        return self._get_env_name_from_backend_type(self.current_backend_type)
 
     def _set_concurrency(self) -> None:
         try:
@@ -1029,7 +1050,13 @@ class Orchestrator:
 
             # Add selected tasks
             count = 0
+            current_env = self._get_env_name()
+            existing_commands = {t.command for t in self.tasks[current_env]}
+
             for cmd in selected_commands:
+                if cmd in existing_commands:
+                    continue  # Skip if command already exists
+
                 self.task_counter += 1
                 task = Task(
                     id=self.task_counter,
@@ -1048,17 +1075,12 @@ class Orchestrator:
                     task.slurm_config = self._get_current_slurm_config()
                     task.remote_workdir = self.remote_workdir_var.get().strip()
 
-                self.tasks.append(task)
+                self.tasks[current_env].append(task)
                 count += 1
 
             self._update_tree()
-            env_name = {
-                BackendType.LOCAL: "local",
-                BackendType.SSH: "ginkgo",
-                BackendType.SLURM: "rorqual",
-            }
             self.status_var.set(
-                f"Added {count} tasks for {env_name.get(self.current_backend_type, 'Unknown')}"
+                f"Added {count} tasks for {current_env}"
             )
 
             # Clean up and close dialog
@@ -1101,7 +1123,8 @@ class Orchestrator:
         task_ids = [int(self.tree.item(s)["values"][0]) for s in selection]
         count = 0
 
-        for task in self.tasks:
+        current_env = self._get_env_name()
+        for task in self.tasks.get(current_env, []):
             if task.id in task_ids and task.status == TaskStatus.UNAPPROVED:
                 task.status = TaskStatus.PENDING
                 count += 1
@@ -1120,8 +1143,9 @@ class Orchestrator:
 
         task_ids = [int(self.tree.item(s)["values"][0]) for s in selection]
         count = 0
-
-        for task in self.tasks:
+        
+        current_env = self._get_env_name()
+        for task in self.tasks.get(current_env, []):
             if task.id in task_ids and task.status == TaskStatus.RUNNING:
                 if task.backend:
                     task.backend.kill()
@@ -1135,9 +1159,10 @@ class Orchestrator:
             messagebox.showinfo("Cannot Kill", "No running tasks in selection.")
 
     def _remove_completed(self) -> None:
-        self.tasks = [
+        current_env = self._get_env_name()
+        self.tasks[current_env] = [
             t
-            for t in self.tasks
+            for t in self.tasks.get(current_env, [])
             if t.status
             not in (TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.KILLED)
         ]
@@ -1152,36 +1177,42 @@ class Orchestrator:
             return
 
         task_ids = set(int(self.tree.item(s)["values"][0]) for s in selection)
-        count = 0
+        
+        current_env = self._get_env_name()
+        task_list = self.tasks.get(current_env, [])
 
         # Kill running tasks first, then remove
-        for task in self.tasks:
+        for task in task_list:
             if task.id in task_ids:
                 if task.status == TaskStatus.RUNNING and task.backend:
                     task.backend.kill()
 
         # Remove all selected tasks
-        original_count = len(self.tasks)
-        self.tasks = [t for t in self.tasks if t.id not in task_ids]
-        count = original_count - len(self.tasks)
+        original_count = len(task_list)
+        self.tasks[current_env] = [t for t in task_list if t.id not in task_ids]
+        count = original_count - len(self.tasks[current_env])
 
         self._update_tree()
         self.status_var.set(f"Removed {count} task(s)")
 
     def _clear_unapproved(self) -> None:
-        self.tasks = [t for t in self.tasks if t.status != TaskStatus.UNAPPROVED]
+        current_env = self._get_env_name()
+        self.tasks[current_env] = [t for t in self.tasks.get(current_env, []) if t.status != TaskStatus.UNAPPROVED]
         self._update_tree()
         self.status_var.set("Cleared unapproved tasks")
 
     def _rerun_tasks(self) -> None:
         """Re-queue selected task(s) if selected, otherwise all failed/killed tasks."""
         selection = self.tree.selection()
+        current_env = self._get_env_name()
+        task_list = self.tasks.get(current_env, [])
+        
         if selection:
             # Re-run selected task(s)
             task_ids = [int(self.tree.item(s)["values"][0]) for s in selection]
             count = 0
 
-            for task in self.tasks:
+            for task in task_list:
                 if task.id in task_ids:
                     if task.status in (
                         TaskStatus.FAILED,
@@ -1204,7 +1235,7 @@ class Orchestrator:
         else:
             # Re-run all failed/killed tasks
             count = 0
-            for task in self.tasks:
+            for task in task_list:
                 if task.status in (TaskStatus.FAILED, TaskStatus.KILLED):
                     task.status = TaskStatus.PENDING
                     task.backend = None
@@ -1219,18 +1250,14 @@ class Orchestrator:
         for item in self.tree.get_children():
             self.tree.delete(item)
 
-        # Re-populate
-        for task in self.tasks:
+        # Re-populate with tasks from the current environment
+        current_env = self._get_env_name()
+        for task in self.tasks.get(current_env, []):
             tag = task.status.value.lower()
-            backend_short = {
-                "Local": "local",
-                "SSH Remote": "ginkgo",
-                "SLURM Cluster": "rorqual",
-            }.get(task.backend_type.value, task.backend_type.value)
             self.tree.insert(
                 "",
                 "end",
-                values=(task.id, backend_short, task.status.value, task.command),
+                values=(task.id, task.status.value, task.command),
                 tags=(tag,),
             )
 
@@ -1244,8 +1271,13 @@ class Orchestrator:
         self.tree.tag_configure("failed", background="#3d1e1e", foreground="#ff6b6b")
         self.tree.tag_configure("killed", background="#3d2d1e", foreground="#ffa07a")
 
-        # Update running count
-        running_count = sum(1 for t in self.tasks if t.status == TaskStatus.RUNNING)
+        # Update running count (globally)
+        running_count = sum(
+            1
+            for task_list in self.tasks.values()
+            for t in task_list
+            if t.status == TaskStatus.RUNNING
+        )
         self.running_label.config(text=f"Running: {running_count}")
 
     def _monitor_task(self, task: Task):
@@ -1362,16 +1394,19 @@ class Orchestrator:
 
         def scheduler_loop():
             while True:
+                all_tasks = [
+                    task for task_list in self.tasks.values() for task in task_list
+                ]
                 running_count = sum(
-                    1 for t in self.tasks if t.status == TaskStatus.RUNNING
+                    1 for t in all_tasks if t.status == TaskStatus.RUNNING
                 )
 
                 if running_count < self.max_concurrent:
-                    # Find next pending task
-                    for task in self.tasks:
+                    # Find next pending task across all environments
+                    for task in all_tasks:
                         if task.status == TaskStatus.PENDING:
                             self._start_task(task)
-                            break
+                            break  # Start one task per check
 
                 # Check every second
                 threading.Event().wait(1.0)
@@ -1411,14 +1446,21 @@ class Orchestrator:
         if self.displayed_output_task_id is None:
             return
 
-        for task in self.tasks:
-            if task.id == self.displayed_output_task_id:
-                buffer_len = len(task.output_buffer)
-                if buffer_len > self.displayed_output_line_count:
-                    new_lines = task.output_buffer[self.displayed_output_line_count :]
-                    self._append_task_output(new_lines)
-                    self.displayed_output_line_count = buffer_len
+        found_task = None
+        for task_list in self.tasks.values():
+            for task in task_list:
+                if task.id == self.displayed_output_task_id:
+                    found_task = task
+                    break
+            if found_task:
                 break
+        
+        if found_task:
+            buffer_len = len(found_task.output_buffer)
+            if buffer_len > self.displayed_output_line_count:
+                new_lines = found_task.output_buffer[self.displayed_output_line_count :]
+                self._append_task_output(new_lines)
+                self.displayed_output_line_count = buffer_len
 
     def _start_output_poller(self) -> None:
         """Periodically check for new output for the selected task."""
