@@ -15,6 +15,8 @@ from pathlib import Path
 from abc import ABC, abstractmethod
 import queue
 import time
+import json
+import os
 
 # Try to import paramiko for SSH support
 try:
@@ -63,14 +65,13 @@ class Task:
     command: str
     status: TaskStatus
     backend_type: BackendType = BackendType.LOCAL
-    process: Optional[subprocess.Popen] = None
-    cascade_slot: Optional[int] = None  # Position in cascade (local only)
     ssh_config: Optional[SSHConfig] = None
     slurm_config: Optional[SLURMConfig] = None
     remote_workdir: str = ""  # Working directory on remote machine (for SSH/SLURM)
     backend: Optional[Any] = None  # ExecutionBackend instance
     output_buffer: list[str] = field(default_factory=list)
     last_poll_time: float = 0.0
+    tmux_session: Optional[str] = None
 
 
 # ============================================================================
@@ -108,67 +109,258 @@ class ExecutionBackend(ABC):
 
 
 class LocalBackend(ExecutionBackend):
-    """Backend for local execution with captured output."""
+    """Backend for local execution using tmux for resilience."""
+
+    _tmux_configured = False  # Class-level flag for one-time config
+    # Full paths to itmux binaries
+    _tmux_path = r"C:\Users\Max\Documents\itmux\bin\tmux.exe"
+    _bash_path = r"C:\Users\Max\Documents\itmux\bin\bash.exe"
 
     def __init__(self, task_id: int) -> None:
         self.task_id = task_id
-        self.process: Optional[subprocess.Popen] = None
         self._status = TaskStatus.PENDING
         self._output_buffer: list[str] = []
-        self._reader_thread: Optional[threading.Thread] = None
+        self.tmux_session = f"orch_local_task_{task_id}"
+        self._last_output_length = 0
+        self._script_path: Optional[str] = None  # Temp script file path
+        self._log_path: Optional[str] = None  # Output log file path
+
+    def _run_command(self, command: list[str]) -> tuple[int, str, str]:
+        """Run a local command and return exit code, stdout, and stderr."""
+        # Replace 'tmux' with full path
+        if command and command[0] == "tmux":
+            command = [self._tmux_path] + command[1:]
+        process = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            shell=False,
+        )
+        return process.returncode, process.stdout, process.stderr
+
+    def _to_unix_path(self, windows_path: str) -> str:
+        """Convert Windows path to Unix format for bash (e.g., C:\\foo -> /c/foo)."""
+        path = Path(windows_path).resolve()
+        # Convert to POSIX-style first
+        posix = path.as_posix()
+        # Check if it starts with a drive letter (e.g., C:/)
+        if len(posix) >= 2 and posix[1] == ":":
+            # Convert C:/path to /c/path (MSYS2/Git Bash format)
+            drive_letter = posix[0].lower()
+            return f"/{drive_letter}{posix[2:]}"
+        return posix
+
+    def _ensure_tmux_configured(self) -> None:
+        """Ensure tmux is configured with remain-on-exit globally (one-time setup)."""
+        if not LocalBackend._tmux_configured:
+            # Start a dummy server to set global option, or set it if server exists
+            self._run_command(["tmux", "set-option", "-g", "remain-on-exit", "on"])
+            LocalBackend._tmux_configured = True
 
     def start(self, command: str, working_dir: str) -> None:
-        """Start task with captured stdout/stderr."""
+        """Execute command locally inside a tmux session."""
         self._status = TaskStatus.RUNNING
 
-        self.process = subprocess.Popen(
-            ["powershell", "-Command", command],
-            cwd=working_dir,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            bufsize=1,  # Line buffered
-        )
+        try:
+            # Ensure tmux is configured properly
+            self._ensure_tmux_configured()
 
-        # Start thread to read output
-        def read_output():
-            if self.process and self.process.stdout:
-                for line in self.process.stdout:
-                    self._output_buffer.append(line.rstrip())
+            # Kill any existing session
+            self._run_command(["tmux", "kill-session", "-t", self.tmux_session])
+            time.sleep(0.1)
 
-        self._reader_thread = threading.Thread(target=read_output, daemon=True)
-        self._reader_thread.start()
+            # Create tmux session and run command
+            # Use Windows path with forward slashes (itmux bash understands these)
+            win_workdir = working_dir.replace("\\", "/")
+
+            # Create a temporary bash script to avoid tmux command parsing issues
+            import tempfile
+
+            # Create log file for output
+            log_fd, log_path = tempfile.mkstemp(suffix='.log', prefix='orch_output_')
+            os.close(log_fd)
+            self._log_path = log_path
+            win_log_path = log_path.replace("\\", "/")
+
+            # Use Unix line endings (\n) for bash script
+            # Redirect all output to log file so we can read it reliably
+            script_lines = [
+                '#!/bin/bash',
+                f'exec > "{win_log_path}" 2>&1',  # Redirect stdout and stderr to log file
+                'echo "--- Start of Task (Local) ---"',
+                f'echo "Intended Dir: {win_workdir}"',
+                f'echo "Command: {command}"',
+                'echo "--- Output ---"',
+                f'cd "{win_workdir}" && {command}',
+                'exit_code=$?',
+                'echo "[TASK_EXIT_CODE:$exit_code]"',
+                'exit $exit_code',
+            ]
+            script_content = '\n'.join(script_lines) + '\n'
+
+            # Write script to temp file with Unix line endings
+            script_fd, script_path = tempfile.mkstemp(suffix='.sh', prefix='orch_task_')
+            try:
+                os.write(script_fd, script_content.encode('utf-8'))
+                os.close(script_fd)
+
+                # Use Windows paths with forward slashes (itmux bash understands these)
+                win_script_path = script_path.replace("\\", "/")
+                bash_win_path = self._bash_path.replace("\\", "/")
+
+                # Create session that runs the script
+                full_command = f'"{bash_win_path}" "{win_script_path}"'
+
+                # Create session with remain-on-exit so we can capture output after command finishes
+                tmux_cmd = [
+                    "tmux", "new-session", "-d", "-s", self.tmux_session,
+                    "-x", "200", "-y", "50",  # Set window size for better output capture
+                    full_command
+                ]
+
+                ret_code, stdout, stderr = self._run_command(tmux_cmd)
+                print(f"[DEBUG] tmux new-session ret_code={ret_code}, stdout={stdout.strip()}, stderr={stderr.strip()}")
+
+                if ret_code != 0:
+                    # Double-check if session actually exists despite error
+                    time.sleep(0.2)  # Give tmux time to create session
+                    check_ret, check_out, check_err = self._run_command(["tmux", "has-session", "-t", self.tmux_session])
+                    print(f"[DEBUG] has-session check: ret={check_ret}, out={check_out.strip()}, err={check_err.strip()}")
+                    if check_ret == 0:
+                        # Session exists, ignore the error
+                        print(f"[DEBUG] Session {self.tmux_session} exists despite ret_code={ret_code}, proceeding")
+                        self._output_buffer.append(f"[Started tmux session: {self.tmux_session}]")
+                        self._script_path = script_path
+                    else:
+                        self._status = TaskStatus.FAILED
+                        self._output_buffer.append(f"[tmux creation failed: ret={ret_code}, err={stderr}]")
+                        # Clean up script file on failure
+                        try:
+                            os.unlink(script_path)
+                        except Exception:
+                            pass
+                        try:
+                            os.unlink(log_path)
+                        except Exception:
+                            pass
+                else:
+                    self._output_buffer.append(f"[Started tmux session: {self.tmux_session}]")
+                    # Store script path for cleanup later
+                    self._script_path = script_path
+            except Exception as e:
+                os.close(script_fd)
+                os.unlink(script_path)
+                raise e
+
+        except FileNotFoundError:
+            self._status = TaskStatus.FAILED
+            self._output_buffer.append("Error: tmux is not installed or not in PATH.")
+        except Exception as e:
+            self._status = TaskStatus.FAILED
+            self._output_buffer.append(f"Local Error: {str(e)}")
 
     def poll_output(self) -> list[str]:
-        """Get all buffered output."""
-        return self._output_buffer.copy()
+        """Get new output from the log file."""
+        new_lines: list[str] = []
+
+        if self._status in (TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.KILLED):
+            return new_lines
+
+        if not self._log_path:
+            return new_lines
+
+        try:
+            # Read from log file instead of tmux capture-pane
+            with open(self._log_path, 'r', encoding='utf-8', errors='replace') as f:
+                all_lines = f.read().splitlines()
+
+            # Debug: show first poll output
+            if self._last_output_length == 0 and all_lines:
+                print(f"[DEBUG] First log read for {self.tmux_session} ({len(all_lines)} lines total):")
+                # Show all non-empty lines
+                non_empty = [(i, line) for i, line in enumerate(all_lines) if line.strip()]
+                for i, line in non_empty[:10]:  # Show first 10 non-empty lines
+                    print(f"  {i}: {line}")
+                if len(non_empty) > 10:
+                    print(f"  ... and {len(non_empty) - 10} more non-empty lines")
+
+            if len(all_lines) > self._last_output_length:
+                new_lines = all_lines[self._last_output_length :]
+                # Debug: show when new lines are captured
+                non_empty_new = [l for l in new_lines if l.strip()]
+                if non_empty_new and self._last_output_length > 0:
+                    print(f"[DEBUG] {self.tmux_session}: {len(new_lines)} new lines")
+                self._output_buffer.extend(new_lines)
+                self._last_output_length = len(all_lines)
+
+                # Check for exit code marker
+                for line in new_lines:
+                    if "[TASK_EXIT_CODE:" in line:
+                        try:
+                            code = int(line.split(":")[1].rstrip("]"))
+                            self._status = TaskStatus.COMPLETED if code == 0 else TaskStatus.FAILED
+                            self._output_buffer.append(f"[Exit code: {code}]")
+                        except (ValueError, IndexError):
+                            pass
+
+        except FileNotFoundError:
+            pass  # Log file not created yet
+        except Exception as e:
+            new_lines.append(f"[Poll Error: {str(e)}]")
+
+        return new_lines
 
     def get_status(self) -> TaskStatus:
-        """Check if process is still running."""
-        if self._status == TaskStatus.KILLED:
-            return TaskStatus.KILLED
-
-        if self.process is None:
+        """Check if the local tmux session is still running."""
+        if self._status in (TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.KILLED):
             return self._status
 
-        return_code = self.process.poll()
-        if return_code is None:
-            return TaskStatus.RUNNING
-        elif return_code == 0:
-            self._status = TaskStatus.COMPLETED
-        else:
-            self._status = TaskStatus.FAILED
+        try:
+            ret_code, stdout, stderr = self._run_command(["tmux", "has-session", "-t", self.tmux_session])
+            print(f"[DEBUG] has-session for {self.tmux_session}: ret={ret_code}, stderr={stderr.strip()}")
+            if ret_code != 0:
+                # Session is gone. If we were running, mark as completed.
+                if self._status == TaskStatus.RUNNING:
+                    self._status = TaskStatus.COMPLETED
+                    self._output_buffer.append("[tmux session ended]")
+        except Exception as e:
+            print(f"[DEBUG] has-session exception: {e}")
+            pass  # Keep current status on error
+
         return self._status
 
     def kill(self) -> None:
-        """Terminate the process."""
-        if self.process:
-            self.process.terminate()
-            self._status = TaskStatus.KILLED
+        """Kill the local tmux session."""
+        self._status = TaskStatus.KILLED
+        try:
+            self._run_command(["tmux", "kill-session", "-t", self.tmux_session])
+            self._output_buffer.append(f"[Killed tmux session {self.tmux_session}]")
+        except Exception:
+            pass
 
     def cleanup(self) -> None:
-        """No cleanup needed for local backend."""
-        pass
+        """Clean up tmux session and temp files without changing status."""
+        try:
+            # Only kill if session still exists (don't change status)
+            self._run_command(["tmux", "kill-session", "-t", self.tmux_session])
+        except Exception:
+            pass
+        # Clean up temp script file
+        if self._script_path:
+            try:
+                os.unlink(self._script_path)
+            except Exception:
+                pass
+            self._script_path = None
+        # Clean up log file
+        if self._log_path:
+            try:
+                os.unlink(self._log_path)
+            except Exception:
+                pass
+            self._log_path = None
 
 
 class SSHBackend(ExecutionBackend):
@@ -283,7 +475,8 @@ class SSHBackend(ExecutionBackend):
 
             # Create tmux session and run command inside it
             # The command runs in detached mode, we'll poll output via tmux capture-pane
-            full_command = f"cd {working_dir} && {command}; echo '[TASK_EXIT_CODE:'$?']'"
+            debug_command = f"echo '--- Start of Task (SSH) ---'; echo 'Intended Dir: {working_dir}'; echo 'Command: {command}'; echo '--- Output ---';"
+            full_command = f"{debug_command} cd {working_dir} && {command}; echo '[TASK_EXIT_CODE:'$?']'"
             tmux_cmd = f'tmux new-session -d -s {self.tmux_session} "{full_command}"'
 
             stdin, stdout, stderr = self.client.exec_command(tmux_cmd)
@@ -457,7 +650,9 @@ class SLURMBackend(ExecutionBackend):
 
             # Full command: salloc ... bash -c "cd dir && command"
             # We add exit code marker at the end
-            full_command = f'{salloc_cmd} bash -c "cd {working_dir} && {command}"; echo \'[TASK_EXIT_CODE:\'$?\']\''
+            debug_command = f"echo '--- Start of Task (SLURM) ---'; echo 'Intended Dir: {working_dir}'; echo 'Command: {command}'; echo '--- Output ---';"
+            inner_command = f"{debug_command} cd '{working_dir}' && {command}"
+            full_command = f'{salloc_cmd} bash -c "{inner_command}"; echo \'[TASK_EXIT_CODE:\'$?\']\''
 
             # Create tmux session with salloc command
             tmux_cmd = f"tmux new-session -d -s {self.tmux_session} '{full_command}'"
@@ -591,6 +786,10 @@ class Orchestrator:
         self.slurm_config = SLURMConfig()
         self.current_remote_workdir: str = ""
         self.poll_interval: int = 5  # seconds
+        self.state_file = "orchestrator_state.json"
+        self.last_task_file_path: Optional[str] = None
+        self.displayed_output_task_id: Optional[int] = None
+        self.displayed_output_line_count: int = 0
 
         # Default Dropbox path (will be updated based on environment)
         self.dropbox_path: str = str(Path.home() / "Dropbox")
@@ -600,9 +799,12 @@ class Orchestrator:
 
         self._setup_dark_theme()
         self._build_gui()
+        self._load_state()  # Load previous state
         self._start_scheduler()
         self._start_update_loop()
         self._start_output_poller()
+
+        self.root.protocol("WM_DELETE_WINDOW", self._on_closing)
 
     def _position_on_cursor_monitor(self) -> None:
         """Position the window on the monitor where the cursor currently is."""
@@ -887,24 +1089,151 @@ class Orchestrator:
             # Show output for this task
             for task in self.tasks:
                 if task.id == task_id:
-                    self._display_task_output(task)
+                    print(f"[DEBUG] Selected task {task_id}, buffer has {len(task.output_buffer)} lines")
+                    self._full_refresh_output_view(task)
+                    self.displayed_output_task_id = task.id
+                    self.displayed_output_line_count = len(task.output_buffer)
                     break
         else:
             self.selected_task_var.set("No task selected")
+            self.displayed_output_task_id = None
+            self.displayed_output_line_count = 0
 
-    def _display_task_output(self, task: Task) -> None:
+    def _full_refresh_output_view(self, task: Task) -> None:
         """Display output buffer for a task."""
         self.output_text.configure(state=tk.NORMAL)
         self.output_text.delete("1.0", tk.END)
 
         if task.output_buffer:
-            for line in task.output_buffer[-500:]:  # Show last 500 lines
-                self.output_text.insert(tk.END, line + "\n")
+            lines_to_show = task.output_buffer[-500:]  # Show last 500 lines
+            print(f"[DEBUG] Displaying {len(lines_to_show)} lines, first few: {lines_to_show[:3]}")
+            # Insert all lines at once for efficiency
+            text_content = "\n".join(lines_to_show) + "\n"
+            self.output_text.insert(tk.END, text_content)
         else:
             self.output_text.insert(tk.END, "[No output yet]\n")
 
         self.output_text.see(tk.END)
         self.output_text.configure(state=tk.DISABLED)
+        # Force visual update
+        self.output_text.update_idletasks()
+
+    def _on_closing(self) -> None:
+        """Handle window closing event."""
+        self._save_state()
+        self.root.destroy()
+
+    def _save_state(self) -> None:
+        """Save the current task list to a file."""
+        state = {
+            "tasks": [],
+            "task_counter": self.task_counter,
+            "last_task_file_path": self.last_task_file_path,
+        }
+        for task in self.tasks:
+            task_data = {
+                "id": task.id,
+                "command": task.command,
+                "status": task.status.value,
+                "backend_type": task.backend_type.value,
+                "remote_workdir": task.remote_workdir,
+                "tmux_session": task.tmux_session,
+                "output_buffer": task.output_buffer,
+            }
+            if task.ssh_config:
+                task_data["ssh_config"] = task.ssh_config.__dict__
+            if task.slurm_config:
+                task_data["slurm_config"] = {
+                    "partition": task.slurm_config.partition,
+                    "time_limit": task.slurm_config.time_limit,
+                    "extra_flags": task.slurm_config.extra_flags,
+                    "ssh_config": task.slurm_config.ssh_config.__dict__,
+                }
+            state["tasks"].append(task_data)
+
+        try:
+            with open(self.state_file, "w", encoding="utf-8") as f:
+                json.dump(state, f, indent=4)
+            self.status_var.set("State saved.")
+        except Exception as e:
+            self.status_var.set(f"Error saving state: {e}")
+
+    def _load_state(self) -> None:
+        """Load task list from a file."""
+        if not os.path.exists(self.state_file):
+            self.status_var.set("No previous state found.")
+            return
+
+        try:
+            with open(self.state_file, "r", encoding="utf-8") as f:
+                state = json.load(f)
+
+            self.task_counter = state.get("task_counter", 0)
+            self.last_task_file_path = state.get("last_task_file_path")
+            loaded_tasks = []
+            for task_data in state.get("tasks", []):
+                status_val = task_data["status"]
+                backend_val = task_data["backend_type"]
+
+                task = Task(
+                    id=task_data["id"],
+                    command=task_data["command"],
+                    status=TaskStatus(status_val),
+                    backend_type=BackendType(backend_val),
+                    remote_workdir=task_data.get("remote_workdir", ""),
+                    tmux_session=task_data.get("tmux_session"),
+                    output_buffer=task_data.get("output_buffer", []),
+                )
+                if "ssh_config" in task_data:
+                    task.ssh_config = SSHConfig(**task_data["ssh_config"])
+                if "slurm_config" in task_data:
+                    slurm_data = task_data["slurm_config"]
+                    slurm_data["ssh_config"] = SSHConfig(**slurm_data["ssh_config"])
+                    task.slurm_config = SLURMConfig(**slurm_data)
+                
+                loaded_tasks.append(task)
+
+            self.tasks = loaded_tasks
+            self._reconnect_running_tasks()
+            self._update_tree()
+            self.status_var.set(f"Loaded {len(self.tasks)} tasks from previous session.")
+
+        except Exception as e:
+            self.status_var.set(f"Error loading state: {e}")
+            messagebox.showerror("Load State Error", f"Failed to load state from {self.state_file}:\n{e}")
+
+    def _reconnect_running_tasks(self) -> None:
+        """Create backend instances and start monitoring for tasks that were running."""
+        for task in self.tasks:
+            if task.status == TaskStatus.RUNNING:
+                try:
+                    backend = None
+                    if task.backend_type == BackendType.LOCAL:
+                        backend = LocalBackend(task.id)
+                        backend.tmux_session = task.tmux_session
+                        task.backend = backend
+                    elif task.backend_type == BackendType.SSH:
+                        if not task.ssh_config:
+                            raise ValueError("SSH config missing for running task")
+                        backend = SSHBackend(task.ssh_config, task.id)
+                        backend.tmux_session = task.tmux_session
+                        task.backend = backend
+                    elif task.backend_type == BackendType.SLURM:
+                        if not task.slurm_config:
+                            raise ValueError("SLURM config missing for running task")
+                        backend = SLURMBackend(task.slurm_config, task.id)
+                        backend.tmux_session = task.tmux_session
+                        task.backend = backend
+                    
+                    # If a backend was created, start a thread to monitor it
+                    if backend:
+                        thread = threading.Thread(target=self._monitor_task, args=(task,), daemon=True)
+                        thread.start()
+
+                except Exception as e:
+                    task.status = TaskStatus.FAILED
+                    task.output_buffer.append(f"[Reconnect failed: {e}]")
+
 
     def _get_current_ssh_config(self) -> SSHConfig:
         """Get SSH config from GUI fields."""
@@ -976,13 +1305,18 @@ class Orchestrator:
             messagebox.showerror("Invalid Input", f"Please enter a valid positive integer.\n{e}")
 
     def _load_tasks_from_file(self) -> None:
-        """Load tasks from a selected file (starts in Dropbox folder)."""
+        """Load tasks from a selected file, starting in the last used directory."""
+        initial_dir = self.dropbox_path
+        if self.last_task_file_path:
+            initial_dir = str(Path(self.last_task_file_path).parent)
+
         file_path = filedialog.askopenfilename(
             title="Select tasks.txt",
             filetypes=[("Text files", "*.txt"), ("All files", "*")],
-            initialdir=self.dropbox_path,
+            initialdir=initial_dir,
         )
         if file_path:
+            self.last_task_file_path = file_path
             self._load_tasks_file(file_path)
 
     def _load_tasks_file(self, file_path: str) -> None:
@@ -1057,11 +1391,6 @@ class Orchestrator:
                     task.status = TaskStatus.KILLED
                     self.status_var.set(f"Killed task #{task_id}")
                     self._update_tree()
-                elif task.process:  # Fallback for old local tasks
-                    task.process.terminate()
-                    task.status = TaskStatus.KILLED
-                    self.status_var.set(f"Killed task #{task_id}")
-                    self._update_tree()
                 return
 
         messagebox.showinfo("Cannot Kill", "Only running tasks can be killed.")
@@ -1082,7 +1411,8 @@ class Orchestrator:
         for task in self.tasks:
             if task.status in (TaskStatus.FAILED, TaskStatus.KILLED):
                 task.status = TaskStatus.PENDING
-                task.process = None
+                task.backend = None
+                task.tmux_session = None
                 count += 1
         self._update_tree()
         self.status_var.set(f"Re-queued {count} failed/killed tasks")
@@ -1101,7 +1431,8 @@ class Orchestrator:
             if task.id == task_id:
                 if task.status in (TaskStatus.FAILED, TaskStatus.KILLED, TaskStatus.COMPLETED):
                     task.status = TaskStatus.PENDING
-                    task.process = None
+                    task.backend = None
+                    task.tmux_session = None
                     self._update_tree()
                     self.status_var.set(f"Re-queued task #{task_id}")
                 else:
@@ -1136,6 +1467,41 @@ class Orchestrator:
         running_count = sum(1 for t in self.tasks if t.status == TaskStatus.RUNNING)
         self.running_label.config(text=f"Running: {running_count}")
 
+    def _monitor_task(self, task: Task):
+        """Polls a running task until completion."""
+        backend = task.backend
+        if not backend:
+            return
+
+        try:
+            # Poll for completion
+            print(f"[DEBUG] Task {task.id}: Starting monitor loop")
+            first_status = backend.get_status()
+            print(f"[DEBUG] Task {task.id}: Initial status: {first_status}")
+
+            while backend.get_status() == TaskStatus.RUNNING:
+                new_lines = backend.poll_output()
+                if new_lines:
+                    task.output_buffer.extend(new_lines)
+                    self.update_queue.put("output")  # Signal GUI to refresh if selected
+                time.sleep(2.0)
+
+            # Final poll and status update
+            print(f"[DEBUG] Task {task.id}: Exited monitor loop, final status: {backend.get_status()}")
+            new_lines = backend.poll_output()
+            if new_lines:
+                task.output_buffer.extend(new_lines)
+            task.status = backend.get_status()
+
+        except Exception as e:
+            task.status = TaskStatus.FAILED
+            task.output_buffer.append(f"[Monitor Error: {str(e)}]")
+        finally:
+            # Clean up tmux session and temp files after task completes
+            if backend:
+                backend.cleanup()
+            self.update_queue.put("update")  # Signal GUI to update tree
+
     def _start_task(self, task: Task) -> None:
         """Start a task using the appropriate backend."""
         task.status = TaskStatus.RUNNING
@@ -1143,75 +1509,58 @@ class Orchestrator:
 
         def run_task():
             try:
-                # Create the appropriate backend
+                # 1. Create and start the appropriate backend
                 if task.backend_type == BackendType.LOCAL:
                     if not task.remote_workdir:
                         raise ValueError("Working directory not set for local task")
-
+                    print(f"[DEBUG] Task {task.id}: Creating LocalBackend")
                     backend = LocalBackend(task.id)
                     task.backend = backend
+                    task.tmux_session = backend.tmux_session
+                    print(f"[DEBUG] Task {task.id}: Starting with command: {task.command}")
+                    print(f"[DEBUG] Task {task.id}: Working dir: {task.remote_workdir}")
                     backend.start(task.command, task.remote_workdir)
-
-                    # Poll for completion and update output buffer
-                    while backend.get_status() == TaskStatus.RUNNING:
-                        task.output_buffer = backend.poll_output()
-                        time.sleep(1.0)
-
-                    task.output_buffer = backend.poll_output()  # Final poll
-                    task.status = backend.get_status()
-                    backend.cleanup()
+                    # Transfer any startup messages to task buffer
+                    print(f"[DEBUG] Task {task.id}: Backend status after start: {backend._status}")
+                    print(f"[DEBUG] Task {task.id}: Backend output buffer: {backend._output_buffer}")
+                    task.output_buffer.extend(backend._output_buffer)
 
                 elif task.backend_type == BackendType.SSH:
-                    if not task.ssh_config:
-                        raise ValueError("SSH config not set for SSH task")
-                    if not task.remote_workdir:
-                        raise ValueError("Remote working directory not set for SSH task")
-
+                    if not task.ssh_config or not task.remote_workdir:
+                        raise ValueError("SSH config or remote workdir not set")
                     backend = SSHBackend(task.ssh_config, task.id)
                     task.backend = backend
+                    task.tmux_session = backend.tmux_session
                     backend.start(task.command, task.remote_workdir)
-
-                    # Poll for completion
-                    while backend.get_status() == TaskStatus.RUNNING:
-                        new_lines = backend.poll_output()
-                        task.output_buffer.extend(new_lines)
-                        time.sleep(2.0)
-
-                    task.status = backend.get_status()
-                    backend.cleanup()
+                    # Transfer any startup messages to task buffer
+                    task.output_buffer.extend(backend._output_buffer)
 
                 elif task.backend_type == BackendType.SLURM:
-                    if not task.slurm_config:
-                        raise ValueError("SLURM config not set for SLURM task")
-                    if not task.remote_workdir:
-                        raise ValueError("Remote working directory not set for SLURM task")
-
+                    if not task.slurm_config or not task.remote_workdir:
+                        raise ValueError("SLURM config or remote workdir not set")
                     backend = SLURMBackend(task.slurm_config, task.id)
                     task.backend = backend
+                    task.tmux_session = backend.tmux_session
                     backend.start(task.command, task.remote_workdir)
-
-                    # Poll for completion
-                    while backend.get_status() == TaskStatus.RUNNING:
-                        new_lines = backend.poll_output()
-                        task.output_buffer.extend(new_lines)
-                        time.sleep(2.0)
-
-                    task.status = backend.get_status()
-                    backend.cleanup()
-
+                    # Transfer any startup messages to task buffer
+                    task.output_buffer.extend(backend._output_buffer)
                 else:
                     raise ValueError(f"Unknown backend type: {task.backend_type}")
 
+                self.update_queue.put("output")  # Signal that we have startup output
+
+                # 2. Monitor the task for completion
+                self._monitor_task(task)
+
             except Exception as e:
                 task.status = TaskStatus.FAILED
-                task.output_buffer.append(f"[Error: {str(e)}]")
-                print(f"Task {task.id} error: {e}")
-
-            # Signal update
-            self.update_queue.put("update")
+                task.output_buffer.append(f"[Start Error: {str(e)}]")
+                print(f"Task {task.id} start error: {e}")
+                self.update_queue.put("update")
 
         thread = threading.Thread(target=run_task, daemon=True)
         thread.start()
+
 
     def _start_scheduler(self) -> None:
         """Scheduler that checks for tasks to start."""
@@ -1237,35 +1586,53 @@ class Orchestrator:
         def check_updates():
             try:
                 while True:
-                    self.update_queue.get_nowait()
-                    self._update_tree()
+                    msg = self.update_queue.get_nowait()
+                    if msg == "update":
+                        self._update_tree()
+                    elif msg == "output":
+                        # This message signals that new output is available
+                        self._incremental_update_output_view()
+
             except queue.Empty:
                 pass
             self.root.after(500, check_updates)
 
         self.root.after(500, check_updates)
 
+    def _append_task_output(self, new_lines: list[str]):
+        """Append new lines to the output widget."""
+        self.output_text.configure(state=tk.NORMAL)
+        for line in new_lines:
+            self.output_text.insert(tk.END, line + "\n")
+        self.output_text.see(tk.END)
+        self.output_text.configure(state=tk.DISABLED)
+
+    def _incremental_update_output_view(self):
+        """Append new output lines for the currently selected task."""
+        if self.displayed_output_task_id is None:
+            return
+
+        for task in self.tasks:
+            if task.id == self.displayed_output_task_id:
+                buffer_len = len(task.output_buffer)
+                if buffer_len > self.displayed_output_line_count:
+                    new_lines = task.output_buffer[self.displayed_output_line_count:]
+                    self._append_task_output(new_lines)
+                    self.displayed_output_line_count = buffer_len
+                break
+
     def _start_output_poller(self) -> None:
-        """Periodically update the output viewer for the selected task."""
-        def poll_output():
-            # Check if a task is selected
-            selection = self.tree.selection()
-            if selection:
-                item = self.tree.item(selection[0])
-                task_id = int(item["values"][0])
+        """Periodically check for new output for the selected task."""
+        # The actual polling now happens in the _monitor_task threads.
+        # This loop is no longer strictly necessary as the monitor thread
+        # now puts an "output" message on the queue.
+        # However, keeping a slower, periodic refresh can be a good fallback
+        # in case a message is missed.
+        def poll_loop():
+            self._incremental_update_output_view()
+            self.root.after(self.poll_interval * 1000, poll_loop)
 
-                # Find the task and refresh output display
-                for task in self.tasks:
-                    if task.id == task_id:
-                        # Refresh if task is running (output is being updated)
-                        if task.status == TaskStatus.RUNNING:
-                            self._display_task_output(task)
-                        break
-
-            # Schedule next poll based on interval
-            self.root.after(self.poll_interval * 1000, poll_output)
-
-        self.root.after(self.poll_interval * 1000, poll_output)
+        self.root.after(1000, poll_loop)
 
 
 def main() -> None:
