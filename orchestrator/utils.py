@@ -450,12 +450,16 @@ class SSHBackend(ExecutionBackend):
             self._run_command(["tmux", "kill-session", "-t", self.local_tmux_session])
             time.sleep(0.1)
 
-            # Create local tmux session
+            # Create local tmux session with large scrollback buffer
             ret_code, _, stderr = self._run_command(
                 ["tmux", "new-session", "-d", "-s", self.local_tmux_session]
             )
             if ret_code != 0:
                 raise Exception(f"Failed to create local tmux session: {stderr}")
+            # Set large history limit for this session to capture all output
+            self._run_command(
+                ["tmux", "set-option", "-t", self.local_tmux_session, "history-limit", "50000"]
+            )
             self._output_buffer.append(
                 f"[Started local tmux session: {self.local_tmux_session}]"
             )
@@ -606,6 +610,35 @@ class SSHBackend(ExecutionBackend):
         """Kill the local tmux session, which terminates the SSH connection."""
         self._status = TaskStatus.KILLED
         try:
+            # Send Ctrl+C to interrupt any running task
+            self._run_command(
+                ["tmux", "send-keys", "-t", self.local_tmux_session, "C-c"]
+            )
+            time.sleep(0.1)
+            # Detach from remote tmux session (Ctrl+B, d)
+            self._run_command(
+                ["tmux", "send-keys", "-t", self.local_tmux_session, "C-b", "d"]
+            )
+            time.sleep(0.3)
+            # Now kill the remote tmux session (we're detached, so this will work)
+            kill_remote_cmd = f"tmux kill-session -t {self.remote_tmux_session}"
+            self._run_command(
+                [
+                    "tmux",
+                    "send-keys",
+                    "-t",
+                    self.local_tmux_session,
+                    kill_remote_cmd,
+                    "C-m",
+                ]
+            )
+            self._output_buffer.append(
+                f"[Sent kill command for remote tmux session {self.remote_tmux_session}]"
+            )
+            time.sleep(0.3)  # Give it a moment to execute
+        except Exception:
+            pass
+        try:
             self._run_command(["tmux", "kill-session", "-t", self.local_tmux_session])
             self._output_buffer.append(
                 f"[Killed local tmux session {self.local_tmux_session}]"
@@ -616,7 +649,17 @@ class SSHBackend(ExecutionBackend):
     def cleanup(self) -> None:
         """Clean up both remote and local tmux sessions."""
         try:
-            # First, kill the remote tmux session by sending the command through the local session
+            # Send Ctrl+C to interrupt any running task
+            self._run_command(
+                ["tmux", "send-keys", "-t", self.local_tmux_session, "C-c"]
+            )
+            time.sleep(0.1)
+            # Detach from remote tmux session (Ctrl+B, d)
+            self._run_command(
+                ["tmux", "send-keys", "-t", self.local_tmux_session, "C-b", "d"]
+            )
+            time.sleep(0.3)
+            # Now kill the remote tmux session
             kill_remote_cmd = f"tmux kill-session -t {self.remote_tmux_session}"
             self._run_command(
                 [
@@ -681,12 +724,16 @@ class SLURMBackend(ExecutionBackend):
             self._run_command(["tmux", "kill-session", "-t", self.local_tmux_session])
             time.sleep(0.1)
 
-            # Create local tmux session
+            # Create local tmux session with large scrollback buffer
             ret_code, _, stderr = self._run_command(
                 ["tmux", "new-session", "-d", "-s", self.local_tmux_session]
             )
             if ret_code != 0:
                 raise Exception(f"Failed to create local tmux session: {stderr}")
+            # Set large history limit for this session to capture all output
+            self._run_command(
+                ["tmux", "set-option", "-t", self.local_tmux_session, "history-limit", "50000"]
+            )
             self._output_buffer.append(
                 f"[Started local tmux session: {self.local_tmux_session}]"
             )
@@ -849,6 +896,35 @@ class SLURMBackend(ExecutionBackend):
         """Kill the local tmux session."""
         self._status = TaskStatus.KILLED
         try:
+            # Send Ctrl+C to interrupt any running task
+            self._run_command(
+                ["tmux", "send-keys", "-t", self.local_tmux_session, "C-c"]
+            )
+            time.sleep(0.1)
+            # Detach from remote tmux session (Ctrl+B, d)
+            self._run_command(
+                ["tmux", "send-keys", "-t", self.local_tmux_session, "C-b", "d"]
+            )
+            time.sleep(0.3)
+            # Now kill the remote tmux session (we're detached, so this will work)
+            kill_remote_cmd = f"tmux kill-session -t {self.remote_tmux_session}"
+            self._run_command(
+                [
+                    "tmux",
+                    "send-keys",
+                    "-t",
+                    self.local_tmux_session,
+                    kill_remote_cmd,
+                    "C-m",
+                ]
+            )
+            self._output_buffer.append(
+                f"[Sent kill command for remote tmux session {self.remote_tmux_session}]"
+            )
+            time.sleep(0.3)  # Give it a moment to execute
+        except Exception:
+            pass
+        try:
             # The remote salloc job will be killed when the SSH session terminates
             self._run_command(["tmux", "kill-session", "-t", self.local_tmux_session])
             self._output_buffer.append(
@@ -860,7 +936,17 @@ class SLURMBackend(ExecutionBackend):
     def cleanup(self) -> None:
         """Clean up both remote and local tmux sessions."""
         try:
-            # First, kill the remote tmux session by sending the command through the local session
+            # Send Ctrl+C to interrupt any running task
+            self._run_command(
+                ["tmux", "send-keys", "-t", self.local_tmux_session, "C-c"]
+            )
+            time.sleep(0.1)
+            # Detach from remote tmux session (Ctrl+B, d)
+            self._run_command(
+                ["tmux", "send-keys", "-t", self.local_tmux_session, "C-b", "d"]
+            )
+            time.sleep(0.3)
+            # Now kill the remote tmux session
             kill_remote_cmd = f"tmux kill-session -t {self.remote_tmux_session}"
             self._run_command(
                 [

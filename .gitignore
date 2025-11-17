@@ -2,8 +2,6 @@
 __pycache__
 *.png
 *.jpg
-test.ipynb
+*.json
 output.txt
-projects/scaling_bc_to_perfection/experiment_1/results
-*.bat
-.claude
+results/

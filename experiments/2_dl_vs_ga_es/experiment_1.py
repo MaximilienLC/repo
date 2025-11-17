@@ -158,24 +158,21 @@ def update_plot(dataset_name: str, interactive: bool = False) -> None:
 
     fig.suptitle(f"{dataset_name} - Real-time Results", fontsize=14)
 
-    # Plot 1: Training Loss Curves (CE-optimizing methods only)
+    # Plot 1: Test CE Loss Curves (CE-optimizing methods only)
     ax1 = axes[0]
     ax1.clear()
     for method_name, data in results.items():
         # Only show CE-optimizing methods (exclude F1-optimizing NE methods)
         if "_F1" in method_name:
             continue
-        if "loss" in data:
-            # DL method - plot loss vs runtime %
-            runtime_pct: np.ndarray = np.linspace(0, 100, len(data["loss"]))
-            ax1.plot(runtime_pct, data["loss"], label=method_name, alpha=0.8)
-        elif "fitness" in data:
-            # NE method optimizing CE - fitness is already positive CE (lower is better)
-            runtime_pct = np.linspace(0, 100, len(data["fitness"]))
-            ax1.plot(runtime_pct, data["fitness"], label=method_name, alpha=0.8)
+        if "test_loss" in data:
+            # Plot test loss vs runtime % (test_loss is a list now)
+            if isinstance(data["test_loss"], list):
+                runtime_pct: np.ndarray = np.linspace(0, 100, len(data["test_loss"]))
+                ax1.plot(runtime_pct, data["test_loss"], label=method_name, alpha=0.8)
     ax1.set_xlabel("Runtime %")
     ax1.set_ylabel("Cross-Entropy Loss")
-    ax1.set_title("Training Loss (CE-optimizing methods)")
+    ax1.set_title("CE Loss")
     ax1.legend(loc="best", fontsize=8)
     ax1.grid(True, alpha=0.3)
 
@@ -188,7 +185,7 @@ def update_plot(dataset_name: str, interactive: bool = False) -> None:
             ax2.plot(runtime_pct, data["f1"], label=method_name, alpha=0.8)
     ax2.set_xlabel("Runtime %")
     ax2.set_ylabel("Macro F1 Score")
-    ax2.set_title("Test Macro F1 Score Curves")
+    ax2.set_title("Macro F1 Score")
     ax2.legend(loc="best", fontsize=8)
     ax2.grid(True, alpha=0.3)
 
@@ -203,13 +200,19 @@ def update_plot(dataset_name: str, interactive: bool = False) -> None:
         else:
             final_f1s.append(0.0)
 
+    # Sort methods by F1 score (best to worst)
+    if methods and final_f1s:
+        sorted_pairs = sorted(zip(methods, final_f1s), key=lambda x: x[1], reverse=True)
+        methods = [p[0] for p in sorted_pairs]
+        final_f1s = [p[1] for p in sorted_pairs]
+
     if methods and final_f1s:
         colors = plt.cm.tab10(np.linspace(0, 1, len(methods)))
         bars = ax3.bar(range(len(methods)), final_f1s, color=colors)
         ax3.set_xticks(range(len(methods)))
         ax3.set_xticklabels(methods, rotation=45, ha="right", fontsize=8)
         ax3.set_ylabel("Final Macro F1 Score")
-        ax3.set_title("Final Performance Comparison")
+        ax3.set_title("Final Macro F1 Score")
         ax3.grid(True, alpha=0.3, axis="y")
 
         for bar, val in zip(bars, final_f1s):
@@ -393,6 +396,7 @@ def train_deep_learning(
     test_act_gpu: Int[Tensor, " test_size"] = test_act.to(DEVICE)
 
     loss_history: list[float] = []
+    test_loss_history: list[float] = []
     f1_history: list[float] = []
 
     convergence_checker: ConvergenceChecker = ConvergenceChecker(
@@ -409,6 +413,7 @@ def train_deep_learning(
         print(f"  Resuming from checkpoint...")
         checkpoint: dict = torch.load(checkpoint_path, weights_only=False)
         loss_history = checkpoint["loss_history"]
+        test_loss_history = checkpoint.get("test_loss_history", [])
         f1_history = checkpoint["f1_history"]
         start_epoch = checkpoint["epoch"] + 1
         model.load_state_dict(checkpoint["model_state"])
@@ -439,6 +444,9 @@ def train_deep_learning(
         if epoch % config.eval_frequency == 0:
             model.eval()
             with torch.no_grad():
+                test_loss: float = compute_cross_entropy(
+                    model, test_obs_gpu, test_act_gpu
+                ).item()
                 f1: float = compute_macro_f1(
                     model,
                     test_obs_gpu,
@@ -446,20 +454,21 @@ def train_deep_learning(
                     config.num_f1_samples,
                     output_size,
                 )
+            test_loss_history.append(test_loss)
             f1_history.append(f1)
-            print(f"  DL Epoch {epoch}: Loss={avg_loss:.4f}, F1={f1:.4f}")
+            print(f"  DL Epoch {epoch}: Train Loss={avg_loss:.4f}, Test Loss={test_loss:.4f}, F1={f1:.4f}")
 
-            # Save results and update plot
+            # Save results
             save_results(
-                dataset_name, method_name, {"loss": loss_history, "f1": f1_history}
+                dataset_name, method_name, {"loss": loss_history, "test_loss": test_loss_history, "f1": f1_history}
             )
-            update_plot(dataset_name)
 
             # Save checkpoint periodically (every 10 epochs)
             if epoch % 10 == 0:
                 checkpoint_data: dict = {
                     "epoch": epoch,
                     "loss_history": loss_history,
+                    "test_loss_history": test_loss_history,
                     "f1_history": f1_history,
                     "model_state": model.state_dict(),
                     "optimizer_state": optimizer.state_dict(),
@@ -880,6 +889,7 @@ def train_neuroevolution(
     )
 
     fitness_history: list[float] = []
+    test_loss_history: list[float] = []
     f1_history: list[float] = []
 
     convergence_checker: ConvergenceChecker = ConvergenceChecker(
@@ -896,6 +906,7 @@ def train_neuroevolution(
         print(f"  Resuming from checkpoint...")
         checkpoint: dict = torch.load(checkpoint_path, weights_only=False)
         fitness_history = checkpoint["fitness_history"]
+        test_loss_history = checkpoint.get("test_loss_history", [])
         f1_history = checkpoint["f1_history"]
         start_gen = checkpoint["generation"] + 1
 
@@ -948,6 +959,9 @@ def train_neuroevolution(
             best_net: MLP = population.create_best_mlp(fitness, minimize=minimize)
             best_net.eval()
             with torch.no_grad():
+                test_loss: float = compute_cross_entropy(
+                    best_net, test_obs_gpu, test_act_gpu
+                ).item()
                 f1: float = compute_macro_f1(
                     best_net,
                     test_obs_gpu,
@@ -955,24 +969,25 @@ def train_neuroevolution(
                     config.num_f1_samples,
                     output_size,
                 )
+            test_loss_history.append(test_loss)
             f1_history.append(f1)
             print(
-                f"  NE {method_name} Gen {gen}: Fitness={best_fitness:.4f}, F1={f1:.4f}"
+                f"  NE {method_name} Gen {gen}: Fitness={best_fitness:.4f}, Test Loss={test_loss:.4f}, F1={f1:.4f}"
             )
 
-            # Save results and update plot
+            # Save results
             save_results(
                 dataset_name,
                 method_name,
-                {"fitness": fitness_history, "f1": f1_history},
+                {"fitness": fitness_history, "test_loss": test_loss_history, "f1": f1_history},
             )
-            update_plot(dataset_name)
 
             # Save checkpoint periodically (every 100 generations)
             if gen % 100 == 0:
                 checkpoint_data: dict = {
                     "generation": gen,
                     "fitness_history": fitness_history,
+                    "test_loss_history": test_loss_history,
                     "f1_history": f1_history,
                     "population_state": population.get_state_dict(),
                 }

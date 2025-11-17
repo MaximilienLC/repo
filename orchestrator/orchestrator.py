@@ -47,6 +47,7 @@ class Orchestrator:
         self.last_task_file_path: Optional[str] = None
         self.displayed_output_task_id: Optional[int] = None
         self.displayed_output_line_count: int = 0
+        self.displayed_output_hash: int = 0  # Hash of content for change detection
 
         # Default Dropbox path (will be updated based on environment)
         self.dropbox_path: str = str(Path.home() / "Dropbox")
@@ -415,6 +416,7 @@ class Orchestrator:
                     self._full_refresh_output_view(found_task)
                     self.displayed_output_task_id = found_task.id
                     self.displayed_output_line_count = len(found_task.output_buffer)
+                    self.displayed_output_hash = hash(tuple(found_task.output_buffer))
 
             else:
                 # Multiple selection
@@ -423,11 +425,13 @@ class Orchestrator:
                 # Clear output view for multiple selection
                 self.displayed_output_task_id = None
                 self.displayed_output_line_count = 0
+                self.displayed_output_hash = 0
                 self._clear_output()
         else:
             self.selected_task_var.set("No task selected")
             self.displayed_output_task_id = None
             self.displayed_output_line_count = 0
+            self.displayed_output_hash = 0
 
     def _select_all_tasks(self, event=None) -> None:
         """Select all tasks in the treeview (Ctrl+A)."""
@@ -1405,10 +1409,14 @@ class Orchestrator:
 
         if found_task:
             # The buffer is now always the full buffer, so we do a full refresh
-            # We check the line count to avoid refreshing if the buffer hasn't changed
-            if len(found_task.output_buffer) != self.displayed_output_line_count:
+            # Check both line count AND content hash to detect changes
+            # (SSH/SLURM tmux capture can have constant line count but changing content)
+            current_hash = hash(tuple(found_task.output_buffer))
+            if (len(found_task.output_buffer) != self.displayed_output_line_count or
+                    current_hash != self.displayed_output_hash):
                 self._full_refresh_output_view(found_task)
                 self.displayed_output_line_count = len(found_task.output_buffer)
+                self.displayed_output_hash = current_hash
 
     def _start_output_poller(self) -> None:
         """Periodically check for new output for the selected task."""

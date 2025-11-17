@@ -1,4 +1,3 @@
-- [Prompts](#prompts)
 - [Overview](#overview)
   - [Motivation](#motivation)
   - [Neuroevolution](#neuroevolution)
@@ -11,21 +10,18 @@
       - [Neuroevolution algorithms](#neuroevolution-algorithms)
       - [Optimization](#optimization)
       - [Plots](#plots)
-
-# Prompts
-
-Never run any model optimization as a background task.
-
-`torch`, `torchvision` and `torchaudio` are installed locally with GPU-support.
-Make sure that all heavy tensor operations are ran on the GPU.
+      - [Hypothesis \& Results](#hypothesis--results)
+        - [Performance gap between SGD \& NE Methods](#performance-gap-between-sgd--ne-methods)
+        - [Remaining differences in compute use](#remaining-differences-in-compute-use)
+    - [Experiment 2](#experiment-2)
 
 # Overview
 
 ## Motivation
 
-Deep Learning methods have pretty much yielded the entirety modern progress in AI. However, we hypothesize that several of its properties (e.g., differentiability constraint, data hyperdependency, data hunger, lack of causal abstraction, overparameterization bias & representation entanglement) make it, by itself, a sub-optimal choice for various tasks. All computational methods have strengths and weaknesses and we believe there is unexplored value to be found in mixing them. 
+Deep Learning methods have pretty much yielded the entirety modern progress in AI. However, we hypothesize that several of its properties (e.g., differentiability constraint, data hyperdependency, data hunger, lack of causal abstraction, overparameterization bias & representation entanglement) make it, by itself, a sub-optimal choice for various tasks. All computational methods have strengths and weaknesses and we believe there is unexplored value to be found in mixing them.
 
-For instance, we believe Deep Learning-only methods to be suboptimal for complex behaviour cloning, which we focus on in this project.
+For instance, we believe Deep Learning-only methods to be suboptimal for human behaviour cloning, which we focus on in this project.
 
 ## Neuroevolution
 
@@ -84,6 +80,8 @@ We implement the two following algorithms:
 - `simple_ga`: during selection, agents with the `top 50% fitness scores` are `selected and duplicated`, taking over the population slots of the lower 50% scoring agents.
 - `simple_es`: during selection, the population's fitness scores are standardized and turned into a probability distribution through a softmax operation. A single agent is then created through a weighted sum of existing agents' parameters. It is then duplicated over the entire population size.
 
+We set the population size to 50 arbitrarily.
+
 #### Optimization
 
 We pick SGD with the default `torch` learning rate (`1e-3`) for Deep Learning.
@@ -98,7 +96,7 @@ We believe the second mode to more closely resemble SGD in that weight update di
 
 We generate the following plots for each dataset:
 
-1. **Training Loss Curves (CE-optimizing methods only)**: Line plot showing cross-entropy loss vs. Runtime % for methods optimizing cross-entropy:
+1. **CE Loss**: Line plot showing test cross-entropy loss vs. Runtime % for methods optimizing cross-entropy:
    - SGD (DL)
    - simple_ga + fixed_sigma + CE
    - simple_ga + adaptive_sigma + CE
@@ -107,6 +105,23 @@ We generate the following plots for each dataset:
 
    Note: F1-optimizing NE methods are excluded from this plot as they optimize a different objective.
 
-2. **Test Macro F1 Score Curves**: Line plot showing macro F1 score on the test set vs. Runtime % for all 9 methods. This is the primary evaluation metric. The Runtime % x-axis (0-100%) allows direct comparison of methods regardless of their total number of iterations/generations.
+2. **Macro F1 Score**: Line plot showing macro F1 score on the test set vs. Runtime % for all 9 methods. This is the primary evaluation metric. The Runtime % x-axis (0-100%) allows direct comparison of methods regardless of their total number of iterations/generations.
 
-3. **Final Performance Comparison**: Bar chart comparing final macro F1 scores across all methods, with numerical values displayed above each bar.
+3. **Final Macro F1 Score**: Bar chart comparing final macro F1 scores across all methods, sorted from best to worst performance, with numerical values displayed above each bar.
+
+#### Hypothesis & Results
+
+##### Performance gap between SGD & NE Methods
+
+All NE methods underperform
+Regardless of the NE method used, 
+
+##### Remaining differences in compute use
+
+- pop size
+- resource utilization
+
+### Experiment 2
+
+In Experiment 2, we wish to start getting a better a feel of whether the performance gap of neuroevolution methods is adressable. In Experiment 1, we set the population size to 50 for all neuroevolution methods. In this experiment, we set out to look into the impact of that variable.
+
