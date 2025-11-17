@@ -33,8 +33,9 @@ class Orchestrator:
 
         self.tasks: dict[str, list[Task]] = {"local": [], "ginkgo": [], "rorqual": []}
         self.task_counter: int = 0
-        self.max_concurrent: int = 1
+        self.max_concurrent: dict[str, int] = {"local": 1, "ginkgo": 1, "rorqual": 1}
         self.update_queue: queue.Queue = queue.Queue()
+        self.activation_cmd_var = tk.StringVar()
 
         # Backend configuration
         self.current_backend_type = BackendType.LOCAL
@@ -222,9 +223,6 @@ class Orchestrator:
         ttk.Button(preset_frame, text="rorqual", command=self._preset_rorqual).pack(
             side=tk.LEFT, padx=5
         )
-        ttk.Button(preset_frame, text="Connect", command=self._connect_to_remote).pack(
-            side=tk.RIGHT, padx=5
-        )
 
         self.env_label = ttk.Label(env_frame, text="Current: local")
         self.env_label.pack(pady=(5, 0))
@@ -257,7 +255,7 @@ class Orchestrator:
             row=0, column=2, padx=5
         )
 
-        self.concurrency_label = ttk.Label(concurrency_frame, text="Current: 1")
+        self.concurrency_label = ttk.Label(concurrency_frame, text="Current (local): 1")
         self.concurrency_label.grid(row=0, column=3, padx=10)
 
         self.running_label = ttk.Label(concurrency_frame, text="Running: 0")
@@ -513,6 +511,7 @@ class Orchestrator:
             "tasks": [],
             "task_counter": self.task_counter,
             "last_task_file_path": self.last_task_file_path,
+            "max_concurrent": self.max_concurrent,
         }
         all_tasks = [task for task_list in self.tasks.values() for task in task_list]
         for task in all_tasks:
@@ -530,6 +529,7 @@ class Orchestrator:
                 "command": task.command,
                 "status": task.status.value,
                 "backend_type": task.backend_type.value,
+                "activation_cmd": task.activation_cmd,
                 "remote_workdir": task.remote_workdir,
                 "tmux_session": task.tmux_session,
                 "log_file_path": log_path,
@@ -566,6 +566,14 @@ class Orchestrator:
             self.task_counter = state.get("task_counter", 0)
             self.last_task_file_path = state.get("last_task_file_path")
 
+            # Load per-environment concurrency settings
+            saved_concurrency = state.get("max_concurrent", {})
+            if isinstance(saved_concurrency, dict):
+                for env_name in self.max_concurrent:
+                    if env_name in saved_concurrency:
+                        self.max_concurrent[env_name] = saved_concurrency[env_name]
+            self._update_concurrency_display()
+
             # Clear existing tasks
             self.tasks = {"local": [], "ginkgo": [], "rorqual": []}
 
@@ -579,6 +587,7 @@ class Orchestrator:
                     command=task_data["command"],
                     status=TaskStatus(status_val),
                     backend_type=backend_type,
+                    activation_cmd=task_data.get("activation_cmd", ""),
                     remote_workdir=task_data.get("remote_workdir", ""),
                     tmux_session=task_data.get("tmux_session"),
                     log_file_path=task_data.get("log_file_path"),
@@ -598,9 +607,7 @@ class Orchestrator:
             self._reconnect_running_tasks()
             self._update_tree()
             loaded_count = sum(len(v) for v in self.tasks.values())
-            self.status_var.set(
-                f"Loaded {loaded_count} tasks from previous session."
-            )
+            self.status_var.set(f"Loaded {loaded_count} tasks from previous session.")
 
         except Exception as e:
             self.status_var.set(f"Error loading state: {e}")
@@ -732,8 +739,10 @@ class Orchestrator:
         """Set preset for local execution."""
         self.current_backend_type = BackendType.LOCAL
         self.current_remote_dropbox = ""
+        self.activation_cmd_var.set("")
         self.env_label.config(text="Current: local")
         self.status_var.set("Environment: local")
+        self._update_concurrency_display()
         self._update_tree()
 
     def _preset_ginkgo(self) -> None:
@@ -746,6 +755,7 @@ class Orchestrator:
         self.ssh_proxy_var.set("mleclei@elm.criugm.qc.ca")
         self.ssh_key_var.set(self._find_ssh_key())
         self.remote_workdir_var.set("")  # Will be auto-filled when loading tasks
+        self.activation_cmd_var.set("source /scratch/mleclei/venv/bin/activate")
         self.env_label.config(text="Current: ginkgo (SSH)")
         key_status = "with key" if self.ssh_key_var.get() else "no key found"
         self.status_var.set(f"Environment: ginkgo (SSH via elm, {key_status})")
@@ -753,6 +763,7 @@ class Orchestrator:
             messagebox.showwarning(
                 "Missing", "paramiko not installed. Run: pip install paramiko"
             )
+        self._update_concurrency_display()
         self._update_tree()
 
     def _preset_rorqual(self) -> None:
@@ -765,6 +776,9 @@ class Orchestrator:
         self.ssh_proxy_var.set("")
         self.ssh_key_var.set(self._find_ssh_key())
         self.remote_workdir_var.set("")  # Will be auto-filled when loading tasks
+        self.activation_cmd_var.set(
+            "module load gcc arrow python/3.12 && source ~/venv/bin/activate"
+        )
         # Hardcoded SLURM settings for rorqual
         self.slurm_partition_var.set("")  # No partition specified, use default
         self.slurm_time_var.set("3:00:00")  # 3 hours default
@@ -778,108 +792,29 @@ class Orchestrator:
             messagebox.showwarning(
                 "Missing", "paramiko not installed. Run: pip install paramiko"
             )
+        self._update_concurrency_display()
         self._update_tree()
-
-    def _connect_to_remote(self) -> None:
-        """Establish persistent SSH connection with MFA support."""
-        if self.current_backend_type == BackendType.LOCAL:
-            messagebox.showinfo(
-                "Local Mode", "No connection needed for local execution."
-            )
-            return
-
-        host = self.ssh_host_var.get()
-        user = self.ssh_user_var.get()
-        port = self.ssh_port_var.get()
-        proxy = self.ssh_proxy_var.get()
-        key_file = self.ssh_key_var.get()
-
-        if not host or not user:
-            messagebox.showerror(
-                "Missing Config",
-                "Please select an environment first (ginkgo or rorqual).",
-            )
-            return
-
-        # Create SSH config
-        ssh_config = SSHConfig(
-            host=host,
-            port=int(port) if port else 22,
-            username=user,
-            key_file=key_file,
-            proxy_jump=proxy,
-        )
-
-        # Check if already connected
-        ssh_manager = SSHConnectionManager.get_instance()
-        if ssh_manager.is_connected():
-            messagebox.showinfo(
-                "Already Connected", f"Already connected to {ssh_manager.host}"
-            )
-            return
-
-        # Show instructions
-        result = messagebox.askokcancel(
-            "SSH Connection",
-            f"Connecting to {host}...\n\n"
-            "If MFA is required:\n"
-            "1. Approve on your phone when prompted\n"
-            "2. Wait for connection to establish\n\n"
-            "Note: On Windows, this may NOT work with MFA.\n"
-            "Consider using WSL (Windows Subsystem for Linux) which supports SSH multiplexing.\n\n"
-            "Click OK to attempt connection.",
-        )
-
-        if not result:
-            self.status_var.set("Connection cancelled")
-            return
-
-        self.status_var.set(f"Connecting to {host}... (this may take a moment)")
-        self.root.update()
-
-        # Run connection in background thread to not freeze GUI
-        def connect_thread():
-            success, message = ssh_manager.connect(ssh_config)
-
-            # Update GUI from main thread
-            def update_gui():
-                if success:
-                    self.status_var.set(f"Connected to {host}")
-                    self.env_label.config(
-                        text=f"Current: {self._get_env_name()} (Connected)"
-                    )
-                    messagebox.showinfo(
-                        "Connected",
-                        f"Successfully connected to {host}!\n\nAll tasks will use this connection.",
-                    )
-                else:
-                    self.status_var.set(f"Connection failed")
-                    messagebox.showerror(
-                        "Connection Failed",
-                        f"Failed to connect:\n{message}\n\n"
-                        "This is likely because MFA is required and Windows SSH\n"
-                        "doesn't support interactive prompts in background mode.\n\n"
-                        "Workaround: Use Windows Subsystem for Linux (WSL)\n"
-                        "or connect via VPN that bypasses MFA.",
-                    )
-
-            self.root.after(0, update_gui)
-
-        thread = threading.Thread(target=connect_thread, daemon=True)
-        thread.start()
 
     def _get_env_name(self) -> str:
         """Get current environment name."""
         return self._get_env_name_from_backend_type(self.current_backend_type)
+
+    def _update_concurrency_display(self) -> None:
+        """Update the concurrency label to show the current environment's setting."""
+        current_env = self._get_env_name()
+        current_max = self.max_concurrent.get(current_env, 1)
+        self.concurrency_label.config(text=f"Current ({current_env}): {current_max}")
+        self.concurrency_var.set(str(current_max))
 
     def _set_concurrency(self) -> None:
         try:
             new_max = int(self.concurrency_var.get())
             if new_max < 1:
                 raise ValueError("Must be at least 1")
-            self.max_concurrent = new_max
-            self.concurrency_label.config(text=f"Current: {new_max}")
-            self.status_var.set(f"Max concurrency set to {new_max}")
+            current_env = self._get_env_name()
+            self.max_concurrent[current_env] = new_max
+            self.concurrency_label.config(text=f"Current ({current_env}): {new_max}")
+            self.status_var.set(f"Max concurrency for {current_env} set to {new_max}")
         except ValueError as e:
             messagebox.showerror(
                 "Invalid Input", f"Please enter a valid positive integer.\n{e}"
@@ -1051,11 +986,16 @@ class Orchestrator:
             # Add selected tasks
             count = 0
             current_env = self._get_env_name()
-            existing_commands = {t.command for t in self.tasks[current_env]}
+            # Check for duplicates across ALL environments
+            existing_commands = {
+                t.command
+                for task_list in self.tasks.values()
+                for t in task_list
+            }
 
             for cmd in selected_commands:
                 if cmd in existing_commands:
-                    continue  # Skip if command already exists
+                    continue  # Skip if command already exists in any environment
 
                 self.task_counter += 1
                 task = Task(
@@ -1063,6 +1003,7 @@ class Orchestrator:
                     command=cmd,
                     status=TaskStatus.UNAPPROVED,
                     backend_type=self.current_backend_type,
+                    activation_cmd=self.activation_cmd_var.get().strip(),
                 )
 
                 # Attach backend-specific config and working directory
@@ -1079,9 +1020,7 @@ class Orchestrator:
                 count += 1
 
             self._update_tree()
-            self.status_var.set(
-                f"Added {count} tasks for {current_env}"
-            )
+            self.status_var.set(f"Added {count} tasks for {current_env}")
 
             # Clean up and close dialog
             canvas.unbind_all("<MouseWheel>")
@@ -1143,7 +1082,7 @@ class Orchestrator:
 
         task_ids = [int(self.tree.item(s)["values"][0]) for s in selection]
         count = 0
-        
+
         current_env = self._get_env_name()
         for task in self.tasks.get(current_env, []):
             if task.id in task_ids and task.status == TaskStatus.RUNNING:
@@ -1177,7 +1116,7 @@ class Orchestrator:
             return
 
         task_ids = set(int(self.tree.item(s)["values"][0]) for s in selection)
-        
+
         current_env = self._get_env_name()
         task_list = self.tasks.get(current_env, [])
 
@@ -1197,7 +1136,11 @@ class Orchestrator:
 
     def _clear_unapproved(self) -> None:
         current_env = self._get_env_name()
-        self.tasks[current_env] = [t for t in self.tasks.get(current_env, []) if t.status != TaskStatus.UNAPPROVED]
+        self.tasks[current_env] = [
+            t
+            for t in self.tasks.get(current_env, [])
+            if t.status != TaskStatus.UNAPPROVED
+        ]
         self._update_tree()
         self.status_var.set("Cleared unapproved tasks")
 
@@ -1206,7 +1149,7 @@ class Orchestrator:
         selection = self.tree.selection()
         current_env = self._get_env_name()
         task_list = self.tasks.get(current_env, [])
-        
+
         if selection:
             # Re-run selected task(s)
             task_ids = [int(self.tree.item(s)["values"][0]) for s in selection]
@@ -1271,14 +1214,18 @@ class Orchestrator:
         self.tree.tag_configure("failed", background="#3d1e1e", foreground="#ff6b6b")
         self.tree.tag_configure("killed", background="#3d2d1e", foreground="#ffa07a")
 
-        # Update running count (globally)
-        running_count = sum(
+        # Update running count (per-environment)
+        current_env = self._get_env_name()
+        env_running = sum(
+            1 for t in self.tasks.get(current_env, []) if t.status == TaskStatus.RUNNING
+        )
+        total_running = sum(
             1
             for task_list in self.tasks.values()
             for t in task_list
             if t.status == TaskStatus.RUNNING
         )
-        self.running_label.config(text=f"Running: {running_count}")
+        self.running_label.config(text=f"Running: {env_running} ({total_running} total)")
 
     def _monitor_task(self, task: Task):
         """Polls a running task until completion."""
@@ -1295,10 +1242,11 @@ class Orchestrator:
             while (
                 backend.get_status() == TaskStatus.RUNNING and not self._shutting_down
             ):
-                new_lines = backend.poll_output()
-                if new_lines:
-                    task.output_buffer.extend(new_lines)
-                    self.update_queue.put("output")  # Signal GUI to refresh if selected
+                # poll_output now returns the entire buffer
+                full_buffer = backend.poll_output()
+                if full_buffer and full_buffer != task.output_buffer:
+                    task.output_buffer = full_buffer
+                    self.update_queue.put("output")  # Signal GUI to refresh
                 time.sleep(2.0)
 
             # Final poll and status update (only if not shutting down)
@@ -1306,9 +1254,9 @@ class Orchestrator:
                 print(
                     f"[DEBUG] Task {task.id}: Exited monitor loop, final status: {backend.get_status()}"
                 )
-                new_lines = backend.poll_output()
-                if new_lines:
-                    task.output_buffer.extend(new_lines)
+                full_buffer = backend.poll_output()
+                if full_buffer:
+                    task.output_buffer = full_buffer
                 task.status = backend.get_status()
 
         except Exception as e:
@@ -1341,7 +1289,7 @@ class Orchestrator:
                         f"[DEBUG] Task {task.id}: Starting with command: {task.command}"
                     )
                     print(f"[DEBUG] Task {task.id}: Working dir: {task.remote_workdir}")
-                    backend.start(task.command, task.remote_workdir)
+                    backend.start(task)
                     # Save log file path to task for state persistence
                     task.log_file_path = backend._log_path
                     # Transfer any startup messages to task buffer
@@ -1359,7 +1307,7 @@ class Orchestrator:
                     backend = SSHBackend(task.ssh_config, task.id)
                     task.backend = backend
                     task.tmux_session = backend.tmux_session
-                    backend.start(task.command, task.remote_workdir)
+                    backend.start(task)
                     # Transfer any startup messages to task buffer
                     task.output_buffer.extend(backend._output_buffer)
 
@@ -1369,7 +1317,7 @@ class Orchestrator:
                     backend = SLURMBackend(task.slurm_config, task.id)
                     task.backend = backend
                     task.tmux_session = backend.tmux_session
-                    backend.start(task.command, task.remote_workdir)
+                    backend.start(task)
                     # Transfer any startup messages to task buffer
                     task.output_buffer.extend(backend._output_buffer)
                 else:
@@ -1394,19 +1342,19 @@ class Orchestrator:
 
         def scheduler_loop():
             while True:
-                all_tasks = [
-                    task for task_list in self.tasks.values() for task in task_list
-                ]
-                running_count = sum(
-                    1 for t in all_tasks if t.status == TaskStatus.RUNNING
-                )
+                # Check each environment separately for per-environment concurrency
+                for env_name, task_list in self.tasks.items():
+                    running_count = sum(
+                        1 for t in task_list if t.status == TaskStatus.RUNNING
+                    )
+                    max_for_env = self.max_concurrent.get(env_name, 1)
 
-                if running_count < self.max_concurrent:
-                    # Find next pending task across all environments
-                    for task in all_tasks:
-                        if task.status == TaskStatus.PENDING:
-                            self._start_task(task)
-                            break  # Start one task per check
+                    if running_count < max_for_env:
+                        # Find next pending task in this environment
+                        for task in task_list:
+                            if task.status == TaskStatus.PENDING:
+                                self._start_task(task)
+                                break  # Start one task per environment per check
 
                 # Check every second
                 threading.Event().wait(1.0)
@@ -1442,7 +1390,7 @@ class Orchestrator:
         self.output_text.configure(state=tk.DISABLED)
 
     def _incremental_update_output_view(self):
-        """Append new output lines for the currently selected task."""
+        """Refreshes the output view with the full buffer for the selected task."""
         if self.displayed_output_task_id is None:
             return
 
@@ -1454,13 +1402,13 @@ class Orchestrator:
                     break
             if found_task:
                 break
-        
+
         if found_task:
-            buffer_len = len(found_task.output_buffer)
-            if buffer_len > self.displayed_output_line_count:
-                new_lines = found_task.output_buffer[self.displayed_output_line_count :]
-                self._append_task_output(new_lines)
-                self.displayed_output_line_count = buffer_len
+            # The buffer is now always the full buffer, so we do a full refresh
+            # We check the line count to avoid refreshing if the buffer hasn't changed
+            if len(found_task.output_buffer) != self.displayed_output_line_count:
+                self._full_refresh_output_view(found_task)
+                self.displayed_output_line_count = len(found_task.output_buffer)
 
     def _start_output_poller(self) -> None:
         """Periodically check for new output for the selected task."""

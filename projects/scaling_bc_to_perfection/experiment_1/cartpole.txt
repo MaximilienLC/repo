@@ -1,0 +1,9 @@
+python -u experiment_1.py --dataset cartpole --method SGD --gpu 0
+python -u experiment_1.py --dataset cartpole --method simple_ga_fixed_CE --gpu 0
+python -u experiment_1.py --dataset cartpole --method simple_ga_fixed_F1 --gpu 0
+python -u experiment_1.py --dataset cartpole --method simple_ga_adaptive_CE --gpu 0
+python -u experiment_1.py --dataset cartpole --method simple_ga_adaptive_F1 --gpu 0
+python -u experiment_1.py --dataset cartpole --method simple_es_fixed_CE --gpu 0
+python -u experiment_1.py --dataset cartpole --method simple_es_fixed_F1 --gpu 0
+python -u experiment_1.py --dataset cartpole --method simple_es_adaptive_CE --gpu 0
+python -u experiment_1.py --dataset cartpole --method simple_es_adaptive_F1 --gpu 0

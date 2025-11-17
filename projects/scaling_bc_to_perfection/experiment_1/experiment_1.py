@@ -30,17 +30,15 @@ def set_random_seeds(seed: int = 42) -> None:
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
-    if torch.cuda.is_available():
-        torch.cuda.manual_seed(seed)
-        torch.cuda.manual_seed_all(seed)
-        # For deterministic behavior (may impact performance)
-        torch.backends.cudnn.deterministic = True
-        torch.backends.cudnn.benchmark = False
+    torch.cuda.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    # For deterministic behavior (may impact performance)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
 
 
-# Device configuration
-DEVICE: torch.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-print(f"Using device: {DEVICE}")
+# Device configuration (will be set in main based on --gpu argument)
+DEVICE: torch.device = torch.device("cuda:0")  # Default, will be overwritten
 
 # Results directory (relative to this script's location)
 SCRIPT_DIR: Path = Path(__file__).parent
@@ -1098,8 +1096,19 @@ def main() -> None:
         default=42,
         help="Random seed for reproducibility (default: 42)",
     )
+    parser.add_argument(
+        "--gpu",
+        type=int,
+        default=0,
+        help="GPU index to use (default: 0)",
+    )
 
     args = parser.parse_args()
+
+    # Set global DEVICE based on --gpu argument
+    global DEVICE
+    DEVICE = torch.device(f"cuda:{args.gpu}")
+    print(f"Using device: {DEVICE}")
 
     all_methods: list[tuple[str, dict]] = get_all_methods()
     method_dict: dict[str, dict] = {name: cfg for name, cfg in all_methods}
@@ -1169,9 +1178,8 @@ def main() -> None:
     print(f"{args.method} Complete!")
     print("=" * 60)
     print(f"Results saved to {RESULTS_DIR}/")
-    print(
-        f"Plot saved to {SCRIPT_DIR / f'{dataset_name.lower().replace('-', '_')}.png'}"
-    )
+    plot_path = SCRIPT_DIR / f"{dataset_name.lower().replace('-', '_')}.png"
+    print(f"Plot saved to {plot_path}")
 
 
 if __name__ == "__main__":
@@ -1187,6 +1195,5 @@ if __name__ == "__main__":
     finally:
         # Ensure cleanup even on error
         plt.close("all")
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
+        torch.cuda.empty_cache()
         sys.exit(exit_code)

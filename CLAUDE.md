@@ -1,9 +1,3 @@
-- [Instructions for Claude Code](#instructions-for-claude-code)
-  - [Context management](#context-management)
-    - [File reading](#file-reading)
-  - [Task execution](#task-execution)
-  - [`CLAUDE.md` file editing](#claudemd-file-editing)
-  - [Relevant computing environment information](#relevant-computing-environment-information)
 - [Specifications](#specifications)
   - [Codebase structure](#codebase-structure)
     - [Focus on `CLAUDE.md` files](#focus-on-claudemd-files)
@@ -18,39 +12,6 @@
       - [Type hinting variables](#type-hinting-variables)
     - [`einops` to manipulate `torch` tensors](#einops-to-manipulate-torch-tensors)
 - [Gotchas](#gotchas)
-
-# Instructions for Claude Code
-
-Make absolutely sure that nothing read from `.md` files is ever ignored, even when debugging.
-
-## Context management
-
-Your effective context size is ~140k tokens. Be mindful to allocate it properly.
-
-### File reading
-
-Never read files that you were not refered to (`@file.py` <=> refered, `file.py` <=> not refered).
-The only exception are files in the `/utils/` folder.
-
-## Task execution
-
-Never run any model optimization as a background task.
-
-## `CLAUDE.md` file editing
-
-You may edit any part of `CLAUDE.md` files as you see fit.
-
-## Relevant computing environment information
-
-- Windows 11
-- GPU: AMD Radeon RX 7800 XT (16GB VRAM)
-- CPU: AMD Ryzen 7 7700X (8 core, 16 threads)
-- RAM: DDR5 32GB
-- SSD: NVME
-
-`torch`, `torchvision` and `torchaudio` are installed locally with GPU-support.
-Make sure that all heavy tensor operations are ran on the GPU.
-Do not investigate `amdsmi` warnings.
 
 # Specifications
 

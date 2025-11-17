@@ -1,16 +1,10 @@
 {
-    "tasks": [
-        {
-            "id": 1,
-            "command": "python -u experiment_1.py --dataset cartpole --method SGD",
-            "status": "Unapproved",
-            "backend_type": "Local",
-            "remote_workdir": "C:\\Users\\Max\\Dropbox\\repos\\maximilienleclei\\behaviour_imitation_research\\projects\\scaling_bc_to_perfection\\experiment_1",
-            "tmux_session": null,
-            "log_file_path": null,
-            "output_buffer": []
-        }
-    ],
-    "task_counter": 1,
-    "last_task_file_path": "C:/Users/Max/Dropbox/repos/maximilienleclei/behaviour_imitation_research/projects/scaling_bc_to_perfection/experiment_1/tasks.txt"
+    "tasks": [],
+    "task_counter": 33,
+    "last_task_file_path": "C:/Users/Max/Dropbox/repos/maximilienleclei/behaviour_imitation_research/projects/scaling_bc_to_perfection/experiment_1/tasks.txt",
+    "max_concurrent": {
+        "local": 6,
+        "ginkgo": 100,
+        "rorqual": 1
+    }
 }

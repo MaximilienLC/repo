@@ -62,10 +62,11 @@ class Task:
     command: str
     status: TaskStatus
     backend_type: BackendType = BackendType.LOCAL
+    activation_cmd: str = ""
     ssh_config: Optional[SSHConfig] = None
     slurm_config: Optional[SLURMConfig] = None
     remote_workdir: str = ""  # Working directory on remote machine (for SSH/SLURM)
-    backend: Optional[Any] = None  # ExecutionBackend instance
+    backend: Optional["ExecutionBackend"] = None  # ExecutionBackend instance
     output_buffer: list[str] = field(default_factory=list)
     last_poll_time: float = 0.0
     tmux_session: Optional[str] = None
@@ -81,7 +82,7 @@ class ExecutionBackend(ABC):
     """Abstract base class for execution backends."""
 
     @abstractmethod
-    def start(self, command: str, working_dir: str) -> None:
+    def start(self, task: "Task") -> None:
         """Start executing the command."""
         pass
 
@@ -119,7 +120,6 @@ class LocalBackend(ExecutionBackend):
         self._status = TaskStatus.PENDING
         self._output_buffer: list[str] = []
         self.tmux_session = f"orch_local_task_{task_id}"
-        self._last_output_length = 0
         self._script_path: Optional[str] = None  # Temp script file path
         self._log_path: Optional[str] = None  # Output log file path
 
@@ -157,9 +157,11 @@ class LocalBackend(ExecutionBackend):
             self._run_command(["tmux", "set-option", "-g", "remain-on-exit", "on"])
             LocalBackend._tmux_configured = True
 
-    def start(self, command: str, working_dir: str) -> None:
+    def start(self, task: "Task") -> None:
         """Execute command locally inside a tmux session."""
         self._status = TaskStatus.RUNNING
+        command = task.command
+        working_dir = task.remote_workdir
 
         try:
             # Ensure tmux is configured properly
@@ -404,7 +406,9 @@ class LocalBackend(ExecutionBackend):
 
 
 class SSHBackend(ExecutionBackend):
-    """Backend for SSH remote execution with tmux for connection resilience."""
+    """Backend for SSH remote execution using a local tmux session."""
+
+    _tmux_path = r"C:\Users\Max\Documents\itmux\bin\tmux.exe"
 
     def __init__(self, ssh_config: SSHConfig, task_id: int) -> None:
         if not PARAMIKO_AVAILABLE:
@@ -414,401 +418,232 @@ class SSHBackend(ExecutionBackend):
 
         self.ssh_config = ssh_config
         self.task_id = task_id
-        self.client: Optional[Any] = None  # paramiko.SSHClient
-        self.jump_client: Optional[Any] = None  # Jump host client for ProxyJump
-        self.channel: Optional[Any] = None  # paramiko.Channel
         self._status = TaskStatus.PENDING
         self._output_buffer: list[str] = []
-        self.tmux_session = f"orch_task_{task_id}"
-        self._last_output_length = 0
+        self.local_tmux_session = f"orch_ssh_{task_id}"
+        self.remote_tmux_session = f"orch_task_{task_id}"
+        self.tmux_session = self.remote_tmux_session  # For compatibility
 
-    def _connect(self) -> None:
-        """Establish SSH connection, with optional ProxyJump support."""
-        if self.client is not None:
-            try:
-                # Test if connection is alive
-                self.client.get_transport().send_ignore()
-                return  # Connection is still good
-            except Exception:
-                # Connection is dead, close and reconnect
-                try:
-                    self.client.close()
-                except Exception:
-                    pass
-                if self.jump_client:
-                    try:
-                        self.jump_client.close()
-                    except Exception:
-                        pass
-                self.client = None
-                self.jump_client = None
+    def _run_command(self, command: list[str]) -> tuple[int, str, str]:
+        """Run a local command and return exit code, stdout, and stderr."""
+        if command and command[0] == "tmux":
+            command = [self._tmux_path] + command[1:]
+        process = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            shell=False,
+        )
+        return process.returncode, process.stdout, process.stderr
 
-        # Handle ProxyJump if configured
-        sock = None
-        if self.ssh_config.proxy_jump:
-            # Parse proxy_jump: "user@host" or "user@host:port"
-            proxy_str = self.ssh_config.proxy_jump
-            if "@" in proxy_str:
-                proxy_user, proxy_host_part = proxy_str.split("@", 1)
-            else:
-                proxy_user = self.ssh_config.username
-                proxy_host_part = proxy_str
-
-            if ":" in proxy_host_part:
-                proxy_host, proxy_port_str = proxy_host_part.split(":", 1)
-                proxy_port = int(proxy_port_str)
-            else:
-                proxy_host = proxy_host_part
-                proxy_port = 22
-
-            # Connect to jump host first
-            self.jump_client = paramiko.SSHClient()
-            self.jump_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-
-            jump_kwargs = {
-                "hostname": proxy_host,
-                "port": proxy_port,
-                "username": proxy_user,
-            }
-            if self.ssh_config.key_file:
-                jump_kwargs["key_filename"] = self.ssh_config.key_file
-            elif self.ssh_config.password:
-                jump_kwargs["password"] = self.ssh_config.password
-
-            self.jump_client.connect(**jump_kwargs)
-
-            # Create channel through jump host to final destination
-            jump_transport = self.jump_client.get_transport()
-            sock = jump_transport.open_channel(
-                "direct-tcpip",
-                (self.ssh_config.host, self.ssh_config.port),
-                ("127.0.0.1", 0),
-            )
-
-        self.client = paramiko.SSHClient()
-        self.client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-
-        connect_kwargs = {
-            "hostname": self.ssh_config.host,
-            "port": self.ssh_config.port,
-            "username": self.ssh_config.username,
-        }
-
-        if sock:
-            connect_kwargs["sock"] = sock
-
-        if self.ssh_config.key_file:
-            connect_kwargs["key_filename"] = self.ssh_config.key_file
-        elif self.ssh_config.password:
-            connect_kwargs["password"] = self.ssh_config.password
-
-        self.client.connect(**connect_kwargs)
-
-    def start(self, command: str, working_dir: str) -> None:
-        """Execute command via SSH inside a tmux session for resilience."""
+    def start(self, task: "Task") -> None:
+        """Execute command via SSH by controlling a local tmux session."""
         self._status = TaskStatus.RUNNING
+        command = task.command
+        working_dir = task.remote_workdir
+        activation_cmd = task.activation_cmd
 
         try:
-            self._connect()
-
-            # Kill any existing tmux session with same name (cleanup from previous runs)
-            self.client.exec_command(
-                f"tmux kill-session -t {self.tmux_session} 2>/dev/null"
-            )
+            # Kill any existing local tmux session for this task
+            self._run_command(["tmux", "kill-session", "-t", self.local_tmux_session])
             time.sleep(0.1)
 
-            # Create tmux session and run command inside it
-            # The command runs in detached mode, we'll poll output via tmux capture-pane
+            # Create local tmux session
+            ret_code, _, stderr = self._run_command(
+                ["tmux", "new-session", "-d", "-s", self.local_tmux_session]
+            )
+            if ret_code != 0:
+                raise Exception(f"Failed to create local tmux session: {stderr}")
+            self._output_buffer.append(
+                f"[Started local tmux session: {self.local_tmux_session}]"
+            )
+
+            # Build SSH command
+            ssh_cmd_parts = ["ssh"]
+            if self.ssh_config.key_file:
+                ssh_cmd_parts.extend(["-i", f"'{self.ssh_config.key_file}'"])
+            if self.ssh_config.proxy_jump:
+                ssh_cmd_parts.extend(["-J", self.ssh_config.proxy_jump])
+            if self.ssh_config.port != 22:
+                ssh_cmd_parts.extend(["-p", str(self.ssh_config.port)])
+            ssh_cmd_parts.append(f"{self.ssh_config.username}@{self.ssh_config.host}")
+            ssh_cmd_str = " ".join(ssh_cmd_parts)
+
+            # Send SSH command to local tmux
+            self._run_command(
+                ["tmux", "send-keys", "-t", self.local_tmux_session, ssh_cmd_str, "C-m"]
+            )
+            self._output_buffer.append(
+                f"[Sent SSH command to {self.local_tmux_session}]"
+            )
+
+            # Set tmux option on remote to keep pane alive after command finishes
+            tmux_setup_cmd = "tmux start-server ; tmux set-option -g remain-on-exit on"
+            self._run_command(
+                [
+                    "tmux",
+                    "send-keys",
+                    "-t",
+                    self.local_tmux_session,
+                    tmux_setup_cmd,
+                    "C-m",
+                ]
+            )
+            time.sleep(0.5)
+
+            # Command to run on remote machine
             debug_command = f"echo '--- Start of Task (SSH) ---'; echo 'Intended Dir: {working_dir}'; echo 'Command: {command}'; echo '--- Output ---';"
-            full_command = f"{debug_command} cd {working_dir} && {command}; echo '[TASK_EXIT_CODE:'$?']'"
-            tmux_cmd = f'tmux new-session -d -s {self.tmux_session} "{full_command}"'
+            
+            commands_to_run = []
+            if activation_cmd:
+                commands_to_run.append("echo '--- Activating Environment ---'")
+                commands_to_run.append('echo "PATH before activation: $PATH"')
+                commands_to_run.append(activation_cmd)
+                commands_to_run.append("echo 'Activation command finished.'")
+                commands_to_run.append('echo "PATH after activation: $PATH"')
+                commands_to_run.append("which python")
+            commands_to_run.append(command)
 
-            stdin, stdout, stderr = self.client.exec_command(tmux_cmd)
-            exit_status = stdout.channel.recv_exit_status()
+            inner_command = f"cd '{working_dir}' && {' && '.join(commands_to_run)}"
+            full_command = (
+                f'{debug_command} {inner_command}; echo "[TASK_EXIT_CODE:$?]"; exec bash'
+            )
 
-            if exit_status != 0:
-                error = stderr.read().decode("utf-8", errors="replace")
-                self._status = TaskStatus.FAILED
-                self._output_buffer.append(f"[tmux creation failed: {error}]")
-            else:
-                self._output_buffer.append(
-                    f"[Started tmux session: {self.tmux_session}]"
-                )
+            # Escape single quotes for the shell
+            escaped_full_command = full_command.replace("'", "'\\''")
+
+            # Create remote tmux session with command
+            # Use -A to create or attach
+            remote_tmux_cmd = f"tmux new-session -A -s {self.remote_tmux_session} '{escaped_full_command}'"
+
+            # Send remote tmux command
+            self._run_command(
+                [
+                    "tmux",
+                    "send-keys",
+                    "-t",
+                    self.local_tmux_session,
+                    remote_tmux_cmd,
+                    "C-m",
+                ]
+            )
+            self._output_buffer.append(
+                f"[Sent remote tmux command to create/attach to {self.remote_tmux_session}]"
+            )
 
         except Exception as e:
             self._status = TaskStatus.FAILED
-            self._output_buffer.append(f"SSH Error: {str(e)}")
+            self._output_buffer.append(f"SSH Start Error: {str(e)}")
 
     def poll_output(self) -> list[str]:
-        """Get new output from tmux session (reconnection-safe)."""
-        new_lines: list[str] = []
-
+        """Get new output by capturing the local tmux pane."""
         if self._status in (TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.KILLED):
-            return new_lines
+            return []
 
         try:
-            self._connect()  # Reconnect if needed
+            # Capture entire local tmux pane output
+            capture_cmd = [
+                "tmux",
+                "capture-pane",
+                "-t",
+                self.local_tmux_session,
+                "-p",
+                "-S",
+                "-",
+            ]
+            ret_code, stdout, stderr = self._run_command(capture_cmd)
 
-            # Capture entire tmux pane output
-            capture_cmd = f"tmux capture-pane -t {self.tmux_session} -p -S -"
-            stdin, stdout, stderr = self.client.exec_command(capture_cmd)
-            output = stdout.read().decode("utf-8", errors="replace")
+            if ret_code != 0:
+                # Session might be gone, which is a final state.
+                # get_status will handle the transition.
+                return []
 
-            # Get only new lines since last poll
-            all_lines = output.splitlines()
-            if len(all_lines) > self._last_output_length:
-                new_lines = all_lines[self._last_output_length :]
-                self._output_buffer.extend(new_lines)
-                self._last_output_length = len(all_lines)
+            all_lines = stdout.splitlines()
 
-                # Check for exit code marker
-                for line in new_lines:
-                    if "[TASK_EXIT_CODE:" in line:
-                        try:
-                            code = int(line.split(":")[1].rstrip("]"))
-                            if code == 0:
-                                self._status = TaskStatus.COMPLETED
-                            else:
-                                self._status = TaskStatus.FAILED
-                            self._output_buffer.append(f"[Exit code: {code}]")
-                        except (ValueError, IndexError):
-                            pass
+            # Check for exit code marker in the whole buffer, as the pane might have scrolled
+            for line in reversed(all_lines):
+                if "[TASK_EXIT_CODE:" in line:
+                    try:
+                        code = int(line.split(":")[-1].strip("[]"))
+                        self._status = (
+                            TaskStatus.COMPLETED if code == 0 else TaskStatus.FAILED
+                        )
+                    except (ValueError, IndexError):
+                        pass
+                    break  # Found the latest exit code
+
+            # Return the entire buffer. The orchestrator is responsible for diffing/redrawing.
+            return all_lines
 
         except Exception as e:
-            new_lines.append(f"[Poll Error - will retry: {str(e)}]")
-
-        return new_lines
+            return [f"[Poll Error: {str(e)}]"]
 
     def get_status(self) -> TaskStatus:
-        """Check if tmux session is still running."""
+        """Check if the local tmux session is still running."""
         if self._status in (TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.KILLED):
             return self._status
 
         try:
-            self._connect()
+            # Check if local tmux session still exists
+            ret_code, _, _ = self._run_command(
+                ["tmux", "has-session", "-t", self.local_tmux_session]
+            )
 
-            # Check if tmux session still exists
-            check_cmd = f"tmux has-session -t {self.tmux_session} 2>/dev/null && echo 'EXISTS' || echo 'GONE'"
-            stdin, stdout, stderr = self.client.exec_command(check_cmd)
-            result = stdout.read().decode("utf-8").strip()
-
-            if result == "GONE":
-                # Session ended, check if we captured exit code
+            if ret_code != 0:
+                # Session ended. If we didn't capture an exit code, assume completion.
                 if self._status == TaskStatus.RUNNING:
-                    self._status = (
-                        TaskStatus.COMPLETED
-                    )  # Assume success if session ended cleanly
-                    self._output_buffer.append("[tmux session ended]")
+                    self._status = TaskStatus.COMPLETED
+                    self._output_buffer.append("[Local tmux session ended]")
 
         except Exception:
-            pass  # Keep current status on connection error
+            pass  # Keep current status on error
 
         return self._status
 
     def kill(self) -> None:
-        """Kill the tmux session."""
+        """Kill the local tmux session, which terminates the SSH connection."""
         self._status = TaskStatus.KILLED
-
         try:
-            self._connect()
-            self.client.exec_command(f"tmux kill-session -t {self.tmux_session}")
-            self._output_buffer.append(f"[Killed tmux session {self.tmux_session}]")
+            self._run_command(["tmux", "kill-session", "-t", self.local_tmux_session])
+            self._output_buffer.append(
+                f"[Killed local tmux session {self.local_tmux_session}]"
+            )
         except Exception:
             pass
 
     def cleanup(self) -> None:
-        """Close SSH connection (tmux session persists on remote)."""
-        if self.client:
-            try:
-                # Clean up tmux session on remote
-                self.client.exec_command(
-                    f"tmux kill-session -t {self.tmux_session} 2>/dev/null"
-                )
-            except Exception:
-                pass
-            self.client.close()
-            self.client = None
-        if self.jump_client:
-            try:
-                self.jump_client.close()
-            except Exception:
-                pass
-            self.jump_client = None
-
-
-class SSHConnectionManager:
-    """Manages a persistent SSH connection for sending commands."""
-
-    _instance: Optional["SSHConnectionManager"] = None
-    _lock = threading.Lock()
-
-    def __init__(self):
-        self.process: Optional[subprocess.Popen] = None
-        self.connected = False
-        self.host = ""
-        self._cmd_lock = threading.Lock()
-        self._output_queue: queue.Queue = queue.Queue()
-        self._reader_thread: Optional[threading.Thread] = None
-
-    @classmethod
-    def get_instance(cls) -> "SSHConnectionManager":
-        if cls._instance is None:
-            with cls._lock:
-                if cls._instance is None:
-                    cls._instance = cls()
-        return cls._instance
-
-    def _output_reader(self):
-        """Background thread to read SSH output."""
+        """Clean up both remote and local tmux sessions."""
         try:
-            while self.process and self.process.poll() is None:
-                line = self.process.stdout.readline()
-                if line:
-                    self._output_queue.put(line.rstrip())
-                else:
-                    break
+            # First, kill the remote tmux session by sending the command through the local session
+            kill_remote_cmd = f"tmux kill-session -t {self.remote_tmux_session}"
+            self._run_command(
+                [
+                    "tmux",
+                    "send-keys",
+                    "-t",
+                    self.local_tmux_session,
+                    kill_remote_cmd,
+                    "C-m",
+                ]
+            )
+            time.sleep(0.3)  # Give it a moment to execute
         except Exception:
             pass
-
-    def connect(self, ssh_config: SSHConfig) -> tuple[bool, str]:
-        """Establish persistent SSH connection."""
-        if self.connected and self.process and self.process.poll() is None:
-            return True, "Already connected"
-
-        # Disconnect any existing connection
-        self.disconnect()
-
-        # Build SSH command - use -T for no pseudo-terminal (cleaner output)
-        cmd = ["ssh", "-T"]
-
-        if ssh_config.key_file:
-            cmd.extend(["-i", ssh_config.key_file])
-
-        if ssh_config.proxy_jump:
-            cmd.extend(["-J", ssh_config.proxy_jump])
-
-        if ssh_config.port and ssh_config.port != 22:
-            cmd.extend(["-p", str(ssh_config.port)])
-
-        cmd.append(f"{ssh_config.username}@{ssh_config.host}")
-
         try:
-            # Start SSH process with pipes
-            self.process = subprocess.Popen(
-                cmd,
-                stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                bufsize=1,
-            )
-
-            self.host = ssh_config.host
-
-            # Start background reader thread
-            self._reader_thread = threading.Thread(
-                target=self._output_reader, daemon=True
-            )
-            self._reader_thread.start()
-
-            # Wait a moment for connection
-            time.sleep(2)
-
-            # Check if process is still running
-            if self.process.poll() is not None:
-                return False, "SSH process terminated - MFA may be required"
-
-            # Test connection
-            test_result = self.run_command("echo CONNECTION_TEST_OK", timeout=10)
-            if "CONNECTION_TEST_OK" in test_result[1]:
-                self.connected = True
-                return True, f"Connected to {ssh_config.host}"
-            else:
-                self.disconnect()
-                return False, f"Connection test failed: {test_result[2]}"
-
-        except Exception as e:
-            self.disconnect()
-            return False, f"Connection failed: {e}"
-
-    def run_command(self, cmd: str, timeout: float = 30) -> tuple[int, str, str]:
-        """Run a command through the persistent SSH connection."""
-        if not self.process or self.process.poll() is not None:
-            self.connected = False
-            return -1, "", "Not connected"
-
-        with self._cmd_lock:
-            try:
-                # Clear queue
-                while not self._output_queue.empty():
-                    try:
-                        self._output_queue.get_nowait()
-                    except queue.Empty:
-                        break
-
-                # Send command with unique marker
-                marker = f"__END_{int(time.time() * 1000)}__"
-                full_cmd = f"{cmd}; EXIT_CODE=$?; echo {marker} $EXIT_CODE\n"
-
-                self.process.stdin.write(full_cmd)
-                self.process.stdin.flush()
-
-                # Read output until we see the marker
-                output_lines = []
-                start_time = time.time()
-
-                while time.time() - start_time < timeout:
-                    try:
-                        line = self._output_queue.get(timeout=0.5)
-                        if marker in line:
-                            # Extract exit code
-                            parts = line.strip().split()
-                            exit_code = int(parts[-1]) if len(parts) > 1 else 0
-                            return exit_code, "\n".join(output_lines), ""
-                        output_lines.append(line)
-                    except queue.Empty:
-                        # Check if process died
-                        if self.process.poll() is not None:
-                            self.connected = False
-                            return -1, "\n".join(output_lines), "Connection lost"
-                        continue
-
-                return -1, "\n".join(output_lines), "Command timeout"
-
-            except Exception as e:
-                return -1, "", str(e)
-
-    def disconnect(self):
-        """Close the SSH connection."""
-        self.connected = False
-        if self.process:
-            try:
-                self.process.stdin.write("exit\n")
-                self.process.stdin.flush()
-            except Exception:
-                pass
-            try:
-                self.process.terminate()
-                self.process.wait(timeout=2)
-            except Exception:
-                pass
-            self.process = None
-        self.host = ""
-
-    def is_connected(self) -> bool:
-        """Check if connection is still alive."""
-        if not self.connected or not self.process:
-            return False
-        if self.process.poll() is not None:
-            self.connected = False
-            return False
-        return True
+            # Then kill the local tmux session
+            self._run_command(["tmux", "kill-session", "-t", self.local_tmux_session])
+        except Exception:
+            pass
+        self.client = None
+        self.jump_client = None
 
 
 class SLURMBackend(ExecutionBackend):
-    """Backend for SLURM cluster execution via salloc with tmux for resilience."""
+    """Backend for SLURM cluster execution via a local tmux session."""
+
+    _tmux_path = r"C:\Users\Max\Documents\itmux\bin\tmux.exe"
 
     def __init__(self, slurm_config: SLURMConfig, task_id: int) -> None:
         self.slurm_config = slurm_config
@@ -816,26 +651,85 @@ class SLURMBackend(ExecutionBackend):
         self._status = TaskStatus.PENDING
         self._output_buffer: list[str] = []
         self.job_id: Optional[str] = None
-        self.tmux_session = f"orch_slurm_{task_id}"
-        self._last_output_length = 0
-        self._ssh_manager = SSHConnectionManager.get_instance()
+        self.local_tmux_session = f"orch_slurm_{task_id}"
+        self.remote_tmux_session = f"orch_task_{task_id}"
+        self.tmux_session = self.remote_tmux_session  # For compatibility
 
-    def _run_remote_command(self, remote_cmd: str) -> tuple[int, str, str]:
-        """Run a command on the remote host via persistent SSH connection."""
-        if not self._ssh_manager.is_connected():
-            return -1, "", "Not connected - click Connect button first"
-        return self._ssh_manager.run_command(remote_cmd)
+    def _run_command(self, command: list[str]) -> tuple[int, str, str]:
+        """Run a local command and return exit code, stdout, and stderr."""
+        if command and command[0] == "tmux":
+            command = [self._tmux_path] + command[1:]
+        process = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            shell=False,
+        )
+        return process.returncode, process.stdout, process.stderr
 
-    def start(self, command: str, working_dir: str) -> None:
-        """Execute command via salloc inside a tmux session for resilience."""
+    def start(self, task: "Task") -> None:
+        """Execute command via salloc by controlling a local tmux session."""
         self._status = TaskStatus.RUNNING
+        command = task.command
+        working_dir = task.remote_workdir
+        activation_cmd = task.activation_cmd
 
         try:
-            # Kill any existing tmux session
-            self._run_remote_command(
-                f"tmux kill-session -t {self.tmux_session} 2>/dev/null"
-            )
+            # Kill any existing local tmux session
+            self._run_command(["tmux", "kill-session", "-t", self.local_tmux_session])
             time.sleep(0.1)
+
+            # Create local tmux session
+            ret_code, _, stderr = self._run_command(
+                ["tmux", "new-session", "-d", "-s", self.local_tmux_session]
+            )
+            if ret_code != 0:
+                raise Exception(f"Failed to create local tmux session: {stderr}")
+            self._output_buffer.append(
+                f"[Started local tmux session: {self.local_tmux_session}]"
+            )
+
+            # Build SSH command
+            ssh_config = self.slurm_config.ssh_config
+            ssh_cmd_parts = ["ssh"]
+            if ssh_config.key_file:
+                ssh_cmd_parts.extend(["-i", f"'{ssh_config.key_file}'"])
+            if ssh_config.proxy_jump:
+                ssh_cmd_parts.extend(["-J", ssh_config.proxy_jump])
+            ssh_cmd_parts.append(f"{ssh_config.username}@{ssh_config.host}")
+            ssh_cmd_str = " ".join(ssh_cmd_parts)
+
+            # Send SSH command
+            self._run_command(
+                ["tmux", "send-keys", "-t", self.local_tmux_session, ssh_cmd_str, "C-m"]
+            )
+            self._output_buffer.append(
+                f"[Sent SSH command to {self.local_tmux_session}]"
+            )
+
+            # Wait for MFA prompt and send "1"
+            time.sleep(5)
+            self._run_command(
+                ["tmux", "send-keys", "-t", self.local_tmux_session, "1", "C-m"]
+            )
+            self._output_buffer.append("[Sent '1' for MFA prompt]")
+            time.sleep(5)  # Wait for connection to establish
+
+            # Set tmux option on remote to keep pane alive after command finishes
+            tmux_setup_cmd = "tmux start-server ; tmux set-option -g remain-on-exit on"
+            self._run_command(
+                [
+                    "tmux",
+                    "send-keys",
+                    "-t",
+                    self.local_tmux_session,
+                    tmux_setup_cmd,
+                    "C-m",
+                ]
+            )
+            time.sleep(0.5)
 
             # Build salloc command
             salloc_parts = ["salloc"]
@@ -846,123 +740,144 @@ class SLURMBackend(ExecutionBackend):
                 salloc_parts.append(self.slurm_config.extra_flags)
             salloc_cmd = " ".join(salloc_parts)
 
-            # Full command: salloc ... bash -c "cd dir && command"
-            # We add exit code marker at the end
+            # Full command to run in remote tmux
             debug_command = f"echo '--- Start of Task (SLURM) ---'; echo 'Intended Dir: {working_dir}'; echo 'Command: {command}'; echo '--- Output ---';"
-            inner_command = f"{debug_command} cd '{working_dir}' && {command}"
-            full_command = f"{salloc_cmd} bash -c \"{inner_command}\"; echo '[TASK_EXIT_CODE:'$?']'"
 
-            # Create tmux session with salloc command
-            tmux_cmd = f"tmux new-session -d -s {self.tmux_session} '{full_command}'"
+            commands_to_run = []
+            if activation_cmd:
+                commands_to_run.append("echo '--- Activating Environment ---'")
+                commands_to_run.append('echo "PATH before activation: $PATH"')
+                commands_to_run.append(activation_cmd)
+                commands_to_run.append("echo 'Activation command finished.'")
+                commands_to_run.append('echo "PATH after activation: $PATH"')
+                commands_to_run.append("which python")
+            commands_to_run.append(command)
 
-            ret_code, stdout, stderr = self._run_remote_command(tmux_cmd)
+            inner_command = f"cd '{working_dir}' && {' && '.join(commands_to_run)}"
+            salloc_inner_cmd = f"{salloc_cmd} bash -c \\\"{inner_command}; echo \\\"[TASK_EXIT_CODE:$?]\\\"; exec bash\\\""
+            full_command = f"{debug_command} {salloc_inner_cmd}"
 
-            if ret_code != 0:
-                self._status = TaskStatus.FAILED
-                self._output_buffer.append(f"[tmux creation failed: {stderr}]")
-            else:
-                self._output_buffer.append(
-                    f"[SLURM] Started tmux session: {self.tmux_session}"
-                )
-                self._output_buffer.append(f"[SLURM] Command: {salloc_cmd}")
+            # Escape single quotes for the shell
+            escaped_full_command = full_command.replace("'", "'\\''")
 
-        except subprocess.TimeoutExpired:
-            self._status = TaskStatus.FAILED
-            self._output_buffer.append(
-                "[SSH connection timeout - did you click Connect first?]"
+            # Create remote tmux session with salloc command
+            remote_tmux_cmd = f"tmux new-session -A -s {self.remote_tmux_session} '{escaped_full_command}'"
+
+            # Send remote tmux command
+            self._run_command(
+                [
+                    "tmux",
+                    "send-keys",
+                    "-t",
+                    self.local_tmux_session,
+                    remote_tmux_cmd,
+                    "C-m",
+                ]
             )
+            self._output_buffer.append(
+                f"[Sent salloc command to remote tmux session {self.remote_tmux_session}]"
+            )
+
         except Exception as e:
             self._status = TaskStatus.FAILED
-            self._output_buffer.append(f"SLURM Error: {str(e)}")
+            self._output_buffer.append(f"SLURM Start Error: {str(e)}")
 
     def poll_output(self) -> list[str]:
-        """Get new output from SLURM job via tmux."""
-        new_lines: list[str] = []
-
+        """Get new output by capturing the local tmux pane."""
         if self._status in (TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.KILLED):
-            return new_lines
+            return []
 
         try:
-            # Capture tmux pane output
-            capture_cmd = f"tmux capture-pane -t {self.tmux_session} -p -S -"
-            ret_code, stdout, stderr = self._run_remote_command(capture_cmd)
+            # Capture entire local tmux pane output
+            capture_cmd = [
+                "tmux",
+                "capture-pane",
+                "-t",
+                self.local_tmux_session,
+                "-p",
+                "-S",
+                "-",
+            ]
+            ret_code, stdout, stderr = self._run_command(capture_cmd)
 
-            if ret_code == 0:
-                all_lines = stdout.splitlines()
-                if len(all_lines) > self._last_output_length:
-                    new_lines = all_lines[self._last_output_length :]
-                    self._output_buffer.extend(new_lines)
-                    self._last_output_length = len(all_lines)
+            if ret_code != 0:
+                return []
 
-                    # Parse for job ID and exit code
-                    for line in new_lines:
-                        if "Granted job allocation" in line:
-                            parts = line.split()
-                            if len(parts) >= 4:
-                                self.job_id = parts[3]
-                                self._output_buffer.append(
-                                    f"[SLURM Job ID: {self.job_id}]"
-                                )
+            all_lines = stdout.splitlines()
 
-                        if "[TASK_EXIT_CODE:" in line:
-                            try:
-                                code = int(line.split(":")[1].rstrip("]"))
-                                if code == 0:
-                                    self._status = TaskStatus.COMPLETED
-                                else:
-                                    self._status = TaskStatus.FAILED
-                                self._output_buffer.append(f"[Exit code: {code}]")
-                            except (ValueError, IndexError):
-                                pass
+            # Parse for job ID and exit code from the whole buffer
+            for line in reversed(all_lines):
+                if self.job_id is None and "Granted job allocation" in line:
+                    parts = line.split()
+                    if len(parts) >= 4:
+                        self.job_id = parts[3]
+
+                if "[TASK_EXIT_CODE:" in line:
+                    try:
+                        code = int(line.split(":")[-1].strip("[]"))
+                        self._status = (
+                            TaskStatus.COMPLETED if code == 0 else TaskStatus.FAILED
+                        )
+                    except (ValueError, IndexError):
+                        pass
+                    break  # Found the latest exit code
+
+            return all_lines
 
         except Exception as e:
-            new_lines.append(f"[Poll Error - will retry: {str(e)}]")
-
-        return new_lines
+            return [f"[Poll Error: {str(e)}]"]
 
     def get_status(self) -> TaskStatus:
-        """Check if SLURM job is still running."""
+        """Check if the local tmux session is still running."""
         if self._status in (TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.KILLED):
             return self._status
 
         try:
-            # Check if tmux session still exists
-            check_cmd = f"tmux has-session -t {self.tmux_session} 2>/dev/null && echo 'EXISTS' || echo 'GONE'"
-            ret_code, stdout, stderr = self._run_remote_command(check_cmd)
-            result = stdout.strip()
-
-            if result == "GONE":
+            ret_code, _, _ = self._run_command(
+                ["tmux", "has-session", "-t", self.local_tmux_session]
+            )
+            if ret_code != 0:
                 if self._status == TaskStatus.RUNNING:
                     self._status = TaskStatus.COMPLETED
-                    self._output_buffer.append("[tmux session ended]")
-
+                    self._output_buffer.append("[Local tmux session ended]")
         except Exception:
             pass
 
         return self._status
 
     def kill(self) -> None:
-        """Kill the SLURM job and tmux session."""
+        """Kill the local tmux session."""
         self._status = TaskStatus.KILLED
-
         try:
-            # Cancel SLURM job if we have its ID
-            if self.job_id:
-                self._run_remote_command(f"scancel {self.job_id}")
-                self._output_buffer.append(f"[Cancelled SLURM job {self.job_id}]")
-
-            # Kill tmux session
-            self._run_remote_command(f"tmux kill-session -t {self.tmux_session}")
-            self._output_buffer.append(f"[Killed tmux session {self.tmux_session}]")
-
+            # The remote salloc job will be killed when the SSH session terminates
+            self._run_command(["tmux", "kill-session", "-t", self.local_tmux_session])
+            self._output_buffer.append(
+                f"[Killed local tmux session {self.local_tmux_session}]"
+            )
         except Exception:
             pass
 
     def cleanup(self) -> None:
-        """Clean up tmux session on remote."""
+        """Clean up both remote and local tmux sessions."""
         try:
-            self._run_remote_command(
-                f"tmux kill-session -t {self.tmux_session} 2>/dev/null"
+            # First, kill the remote tmux session by sending the command through the local session
+            kill_remote_cmd = f"tmux kill-session -t {self.remote_tmux_session}"
+            self._run_command(
+                [
+                    "tmux",
+                    "send-keys",
+                    "-t",
+                    self.local_tmux_session,
+                    kill_remote_cmd,
+                    "C-m",
+                ]
             )
+            time.sleep(0.3)  # Give it a moment to execute
         except Exception:
             pass
+        try:
+            # Then kill the local tmux session
+            self._run_command(["tmux", "kill-session", "-t", self.local_tmux_session])
+        except Exception:
+            pass
+
