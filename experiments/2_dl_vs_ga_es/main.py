@@ -1,8 +1,3 @@
-"""
-Experiment 1: Comparing Deep Learning and Neuroevolution in low-dimensional tasks.
-Modeling state-action pairs from CartPole-v1 and LunarLander-v2 datasets.
-"""
-
 import argparse
 import json
 import random
@@ -65,7 +60,9 @@ class ExperimentConfig:
     adaptive_sigma_noise: float = 1e-2
     # Convergence parameters (patience-based)
     convergence_patience: int = 200  # Stop if no improvement in this many evaluations
-    convergence_min_improvement: float = 1e-4  # Minimum improvement to count as progress
+    convergence_min_improvement: float = (
+        1e-4  # Minimum improvement to count as progress
+    )
     # Random seed
     seed: int = 42
 
@@ -456,11 +453,19 @@ def train_deep_learning(
                 )
             test_loss_history.append(test_loss)
             f1_history.append(f1)
-            print(f"  DL Epoch {epoch}: Train Loss={avg_loss:.4f}, Test Loss={test_loss:.4f}, F1={f1:.4f}")
+            print(
+                f"  DL Epoch {epoch}: Train Loss={avg_loss:.4f}, Test Loss={test_loss:.4f}, F1={f1:.4f}"
+            )
 
             # Save results
             save_results(
-                dataset_name, method_name, {"loss": loss_history, "test_loss": test_loss_history, "f1": f1_history}
+                dataset_name,
+                method_name,
+                {
+                    "loss": loss_history,
+                    "test_loss": test_loss_history,
+                    "f1": f1_history,
+                },
             )
 
             # Save checkpoint periodically (every 10 epochs)
@@ -514,27 +519,27 @@ class BatchedPopulation:
         self.fc1_weight: Float[Tensor, "pop_size hidden_size input_size"] = (
             torch.randn(pop_size, hidden_size, input_size, device=DEVICE) * fc1_std
         )
-        self.fc1_bias: Float[Tensor, "pop_size hidden_size"] = torch.randn(
-            pop_size, hidden_size, device=DEVICE
-        ) * fc1_std
+        self.fc1_bias: Float[Tensor, "pop_size hidden_size"] = (
+            torch.randn(pop_size, hidden_size, device=DEVICE) * fc1_std
+        )
         self.fc2_weight: Float[Tensor, "pop_size output_size hidden_size"] = (
             torch.randn(pop_size, output_size, hidden_size, device=DEVICE) * fc2_std
         )
-        self.fc2_bias: Float[Tensor, "pop_size output_size"] = torch.randn(
-            pop_size, output_size, device=DEVICE
-        ) * fc2_std
+        self.fc2_bias: Float[Tensor, "pop_size output_size"] = (
+            torch.randn(pop_size, output_size, device=DEVICE) * fc2_std
+        )
 
         # Initialize adaptive sigmas if needed
         if adaptive_sigma:
-            self.fc1_weight_sigma: Float[
-                Tensor, "pop_size hidden_size input_size"
-            ] = torch.full_like(self.fc1_weight, sigma_init)
+            self.fc1_weight_sigma: Float[Tensor, "pop_size hidden_size input_size"] = (
+                torch.full_like(self.fc1_weight, sigma_init)
+            )
             self.fc1_bias_sigma: Float[Tensor, "pop_size hidden_size"] = (
                 torch.full_like(self.fc1_bias, sigma_init)
             )
-            self.fc2_weight_sigma: Float[
-                Tensor, "pop_size output_size hidden_size"
-            ] = torch.full_like(self.fc2_weight, sigma_init)
+            self.fc2_weight_sigma: Float[Tensor, "pop_size output_size hidden_size"] = (
+                torch.full_like(self.fc2_weight, sigma_init)
+            )
             self.fc2_bias_sigma: Float[Tensor, "pop_size output_size"] = (
                 torch.full_like(self.fc2_bias, sigma_init)
             )
@@ -600,18 +605,18 @@ class BatchedPopulation:
             self.fc2_bias = self.fc2_bias + eps
         else:
             # Fixed sigma mutation
-            self.fc1_weight = self.fc1_weight + torch.randn_like(
-                self.fc1_weight
-            ) * self.sigma_init
-            self.fc1_bias = self.fc1_bias + torch.randn_like(
-                self.fc1_bias
-            ) * self.sigma_init
-            self.fc2_weight = self.fc2_weight + torch.randn_like(
-                self.fc2_weight
-            ) * self.sigma_init
-            self.fc2_bias = self.fc2_bias + torch.randn_like(
-                self.fc2_bias
-            ) * self.sigma_init
+            self.fc1_weight = (
+                self.fc1_weight + torch.randn_like(self.fc1_weight) * self.sigma_init
+            )
+            self.fc1_bias = (
+                self.fc1_bias + torch.randn_like(self.fc1_bias) * self.sigma_init
+            )
+            self.fc2_weight = (
+                self.fc2_weight + torch.randn_like(self.fc2_weight) * self.sigma_init
+            )
+            self.fc2_bias = (
+                self.fc2_bias + torch.randn_like(self.fc2_bias) * self.sigma_init
+            )
 
     def evaluate(
         self,
@@ -740,24 +745,28 @@ class BatchedPopulation:
         avg_fc1_weight: Float[Tensor, "hidden_size input_size"] = (
             w_fc1 * self.fc1_weight
         ).sum(dim=0)
-        self.fc1_weight = avg_fc1_weight.unsqueeze(0).expand(self.pop_size, -1, -1).clone()
+        self.fc1_weight = (
+            avg_fc1_weight.unsqueeze(0).expand(self.pop_size, -1, -1).clone()
+        )
 
         w_fc1_bias: Float[Tensor, "pop_size 1"] = weights.view(-1, 1)
-        avg_fc1_bias: Float[Tensor, " hidden_size"] = (
-            w_fc1_bias * self.fc1_bias
-        ).sum(dim=0)
+        avg_fc1_bias: Float[Tensor, " hidden_size"] = (w_fc1_bias * self.fc1_bias).sum(
+            dim=0
+        )
         self.fc1_bias = avg_fc1_bias.unsqueeze(0).expand(self.pop_size, -1).clone()
 
         w_fc2: Float[Tensor, "pop_size 1 1"] = weights.view(-1, 1, 1)
         avg_fc2_weight: Float[Tensor, "output_size hidden_size"] = (
             w_fc2 * self.fc2_weight
         ).sum(dim=0)
-        self.fc2_weight = avg_fc2_weight.unsqueeze(0).expand(self.pop_size, -1, -1).clone()
+        self.fc2_weight = (
+            avg_fc2_weight.unsqueeze(0).expand(self.pop_size, -1, -1).clone()
+        )
 
         w_fc2_bias: Float[Tensor, "pop_size 1"] = weights.view(-1, 1)
-        avg_fc2_bias: Float[Tensor, " output_size"] = (
-            w_fc2_bias * self.fc2_bias
-        ).sum(dim=0)
+        avg_fc2_bias: Float[Tensor, " output_size"] = (w_fc2_bias * self.fc2_bias).sum(
+            dim=0
+        )
         self.fc2_bias = avg_fc2_bias.unsqueeze(0).expand(self.pop_size, -1).clone()
 
         if self.adaptive_sigma:
@@ -979,7 +988,11 @@ def train_neuroevolution(
             save_results(
                 dataset_name,
                 method_name,
-                {"fitness": fitness_history, "test_loss": test_loss_history, "f1": f1_history},
+                {
+                    "fitness": fitness_history,
+                    "test_loss": test_loss_history,
+                    "f1": f1_history,
+                },
             )
 
             # Save checkpoint periodically (every 100 generations)

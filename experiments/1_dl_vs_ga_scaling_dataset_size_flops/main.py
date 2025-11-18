@@ -1,31 +1,28 @@
-"""
-Scaling Law Analysis v2: DL vs GA in Behavior Cloning
-Using HuggingFace CartPole dataset with FLOP estimation
-"""
+import pickle
+import time
+from typing import Dict, List, Tuple
 
-import numpy as np
 import gymnasium as gym
+import matplotlib.pyplot as plt
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torch.utils.data import Dataset, DataLoader
-import matplotlib.pyplot as plt
-import pickle
-from typing import List, Tuple, Dict
 from datasets import load_dataset
-import time
+from torch.utils.data import DataLoader, Dataset
 
 # Set seeds
 np.random.seed(42)
 torch.manual_seed(42)
 
 # Check for GPU
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Using device: {device}")
 
 
 class MLP(nn.Module):
     """2-layer MLP for policy"""
+
     def __init__(self, input_dim, output_dim, hidden_dim=64):
         super().__init__()
         self.net = nn.Sequential(
@@ -33,7 +30,7 @@ class MLP(nn.Module):
             nn.ReLU(),
             nn.Linear(hidden_dim, 32),
             nn.ReLU(),
-            nn.Linear(32, output_dim)
+            nn.Linear(32, output_dim),
         )
 
     def forward(self, x):
@@ -46,6 +43,7 @@ class MLP(nn.Module):
 
 class TrajectoryDataset(Dataset):
     """Dataset of (state, action) pairs"""
+
     def __init__(self, states, actions):
         self.states = torch.FloatTensor(states)
         self.actions = torch.LongTensor(actions)
@@ -63,14 +61,14 @@ def load_hf_cartpole_dataset():
     dataset = load_dataset("NathanGavenski/CartPole-v1")
 
     # Extract states and actions from training set
-    train_data = dataset['train']
+    train_data = dataset["train"]
 
     all_states = []
     all_actions = []
 
     for sample in train_data:
-        state = sample['obs']
-        action = sample['actions']
+        state = sample["obs"]
+        action = sample["actions"]
 
         all_states.append(state)
         all_actions.append(action)
@@ -83,7 +81,7 @@ def load_hf_cartpole_dataset():
     return all_states, all_actions
 
 
-def evaluate_policy(policy, env_name='CartPole-v1', num_episodes=100):
+def evaluate_policy(policy, env_name="CartPole-v1", num_episodes=100):
     """Evaluate policy and return metrics"""
     env = gym.make(env_name)
     policy.eval()
@@ -143,8 +141,9 @@ def estimate_flops_forward_pass(model, input_dim):
     return flops
 
 
-def train_dl_bc(states, actions, lr=1e-3, batch_size=64, epochs=100,
-                state_dim=4, action_dim=2):
+def train_dl_bc(
+    states, actions, lr=1e-3, batch_size=64, epochs=100, state_dim=4, action_dim=2
+):
     """Train behavior cloning with deep learning, tracking FLOPs"""
     dataset = TrajectoryDataset(states, actions)
     dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
@@ -218,8 +217,15 @@ def tournament_selection(population, fitness_scores, k=3):
     return population[winner_idx]
 
 
-def train_ga_bc(states, actions, population_size=100, generations=100,
-                mutation_rate=0.01, state_dim=4, action_dim=2):
+def train_ga_bc(
+    states,
+    actions,
+    population_size=100,
+    generations=100,
+    mutation_rate=0.01,
+    state_dim=4,
+    action_dim=2,
+):
     """Train behavior cloning with genetic algorithm, tracking FLOPs"""
 
     # Initialize population
@@ -292,9 +298,9 @@ def train_ga_bc(states, actions, population_size=100, generations=100,
 
 def run_scaling_experiments():
     """Run complete scaling law experiments with FLOP tracking"""
-    print("="*60)
+    print("=" * 60)
     print("SCALING LAW EXPERIMENT v2: DL vs GA with FLOP Estimation")
-    print("="*60)
+    print("=" * 60)
 
     # Load HuggingFace dataset
     all_states, all_actions = load_hf_cartpole_dataset()
@@ -313,25 +319,25 @@ def run_scaling_experiments():
     dataset_sizes = [100, 300, 1000, 3000, 10000, 30000]
 
     results = {
-        'dl': {
-            'action_match': [],
-            'episode_return': [],
-            'flops': [],
-            'samples_processed': [],
-            'dataset_sizes': dataset_sizes
+        "dl": {
+            "action_match": [],
+            "episode_return": [],
+            "flops": [],
+            "samples_processed": [],
+            "dataset_sizes": dataset_sizes,
         },
-        'ga': {
-            'action_match': [],
-            'episode_return': [],
-            'flops': [],
-            'evaluations': [],
-            'dataset_sizes': dataset_sizes
-        }
+        "ga": {
+            "action_match": [],
+            "episode_return": [],
+            "flops": [],
+            "evaluations": [],
+            "dataset_sizes": dataset_sizes,
+        },
     }
 
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     print("DEEP LEARNING EXPERIMENTS")
-    print("="*60)
+    print("=" * 60)
 
     for size in dataset_sizes:
         print(f"\nDataset size: {size}")
@@ -349,25 +355,28 @@ def run_scaling_experiments():
         print("  Training DL...")
         start_time = time.time()
         policy, flops, samples = train_dl_bc(
-            train_subset_states, train_subset_actions,
-            lr=1e-3, batch_size=64, epochs=150
+            train_subset_states,
+            train_subset_actions,
+            lr=1e-3,
+            batch_size=64,
+            epochs=150,
         )
         train_time = time.time() - start_time
 
         match_rate = compute_action_match_rate(policy, test_states, test_actions)
         avg_return, _ = evaluate_policy(policy, num_episodes=50)
 
-        results['dl']['action_match'].append(match_rate)
-        results['dl']['episode_return'].append(avg_return)
-        results['dl']['flops'].append(flops)
-        results['dl']['samples_processed'].append(samples)
+        results["dl"]["action_match"].append(match_rate)
+        results["dl"]["episode_return"].append(avg_return)
+        results["dl"]["flops"].append(flops)
+        results["dl"]["samples_processed"].append(samples)
 
         print(f"  DL - Match: {match_rate:.4f}, Return: {avg_return:.2f}")
         print(f"       FLOPs: {flops:.2e}, Time: {train_time:.1f}s")
 
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     print("GENETIC ALGORITHM EXPERIMENTS")
-    print("="*60)
+    print("=" * 60)
 
     for size in dataset_sizes:
         print(f"\nDataset size: {size}")
@@ -385,24 +394,27 @@ def run_scaling_experiments():
         print("  Training GA...")
         start_time = time.time()
         policy, flops, evals = train_ga_bc(
-            train_subset_states, train_subset_actions,
-            population_size=100, generations=100, mutation_rate=0.01
+            train_subset_states,
+            train_subset_actions,
+            population_size=100,
+            generations=100,
+            mutation_rate=0.01,
         )
         train_time = time.time() - start_time
 
         match_rate = compute_action_match_rate(policy, test_states, test_actions)
         avg_return, _ = evaluate_policy(policy, num_episodes=50)
 
-        results['ga']['action_match'].append(match_rate)
-        results['ga']['episode_return'].append(avg_return)
-        results['ga']['flops'].append(flops)
-        results['ga']['evaluations'].append(evals)
+        results["ga"]["action_match"].append(match_rate)
+        results["ga"]["episode_return"].append(avg_return)
+        results["ga"]["flops"].append(flops)
+        results["ga"]["evaluations"].append(evals)
 
         print(f"  GA - Match: {match_rate:.4f}, Return: {avg_return:.2f}")
         print(f"       FLOPs: {flops:.2e}, Evals: {evals}, Time: {train_time:.1f}s")
 
     # Save results
-    with open('scaling_results_v2.pkl', 'wb') as f:
+    with open("scaling_results_v2.pkl", "wb") as f:
         pickle.dump(results, f)
 
     return results
@@ -418,72 +430,88 @@ def plot_results(results):
     dl_return = []
     dl_flops = []
 
-    for i, size in enumerate(results['dl']['dataset_sizes']):
-        if i < len(results['dl']['action_match']):
+    for i, size in enumerate(results["dl"]["dataset_sizes"]):
+        if i < len(results["dl"]["action_match"]):
             dl_sizes.append(size)
-            dl_match.append(results['dl']['action_match'][i])
-            dl_return.append(results['dl']['episode_return'][i])
-            dl_flops.append(results['dl']['flops'][i])
+            dl_match.append(results["dl"]["action_match"][i])
+            dl_return.append(results["dl"]["episode_return"][i])
+            dl_flops.append(results["dl"]["flops"][i])
 
     ga_sizes = []
     ga_match = []
     ga_return = []
     ga_flops = []
 
-    for i, size in enumerate(results['ga']['dataset_sizes']):
-        if i < len(results['ga']['action_match']):
+    for i, size in enumerate(results["ga"]["dataset_sizes"]):
+        if i < len(results["ga"]["action_match"]):
             ga_sizes.append(size)
-            ga_match.append(results['ga']['action_match'][i])
-            ga_return.append(results['ga']['episode_return'][i])
-            ga_flops.append(results['ga']['flops'][i])
+            ga_match.append(results["ga"]["action_match"][i])
+            ga_return.append(results["ga"]["episode_return"][i])
+            ga_flops.append(results["ga"]["flops"][i])
 
     # Plot 1: Action Match Rate vs Dataset Size
-    axes[0, 0].plot(dl_sizes, dl_match, marker='o', label='DL', linewidth=2, markersize=8)
-    axes[0, 0].plot(ga_sizes, ga_match, marker='s', label='GA', linewidth=2, markersize=8)
-    axes[0, 0].set_xlabel('Dataset Size', fontsize=12)
-    axes[0, 0].set_ylabel('Action Match Rate', fontsize=12)
-    axes[0, 0].set_title('Saturation: Action Match vs Dataset Size', fontsize=13)
-    axes[0, 0].set_xscale('log')
+    axes[0, 0].plot(
+        dl_sizes, dl_match, marker="o", label="DL", linewidth=2, markersize=8
+    )
+    axes[0, 0].plot(
+        ga_sizes, ga_match, marker="s", label="GA", linewidth=2, markersize=8
+    )
+    axes[0, 0].set_xlabel("Dataset Size", fontsize=12)
+    axes[0, 0].set_ylabel("Action Match Rate", fontsize=12)
+    axes[0, 0].set_title("Saturation: Action Match vs Dataset Size", fontsize=13)
+    axes[0, 0].set_xscale("log")
     axes[0, 0].grid(True, alpha=0.3)
     axes[0, 0].legend(fontsize=11)
-    axes[0, 0].axhline(y=1.0, color='r', linestyle='--', alpha=0.5, label='Perfect')
+    axes[0, 0].axhline(y=1.0, color="r", linestyle="--", alpha=0.5, label="Perfect")
 
     # Plot 2: Episode Return vs Dataset Size
-    axes[0, 1].plot(dl_sizes, dl_return, marker='o', label='DL', linewidth=2, markersize=8)
-    axes[0, 1].plot(ga_sizes, ga_return, marker='s', label='GA', linewidth=2, markersize=8)
-    axes[0, 1].set_xlabel('Dataset Size', fontsize=12)
-    axes[0, 1].set_ylabel('Avg Episode Return', fontsize=12)
-    axes[0, 1].set_title('Saturation: Return vs Dataset Size', fontsize=13)
-    axes[0, 1].set_xscale('log')
+    axes[0, 1].plot(
+        dl_sizes, dl_return, marker="o", label="DL", linewidth=2, markersize=8
+    )
+    axes[0, 1].plot(
+        ga_sizes, ga_return, marker="s", label="GA", linewidth=2, markersize=8
+    )
+    axes[0, 1].set_xlabel("Dataset Size", fontsize=12)
+    axes[0, 1].set_ylabel("Avg Episode Return", fontsize=12)
+    axes[0, 1].set_title("Saturation: Return vs Dataset Size", fontsize=13)
+    axes[0, 1].set_xscale("log")
     axes[0, 1].grid(True, alpha=0.3)
     axes[0, 1].legend(fontsize=11)
 
     # Plot 3: Action Match Rate vs FLOPs
-    axes[1, 0].plot(dl_flops, dl_match, marker='o', label='DL', linewidth=2, markersize=8)
-    axes[1, 0].plot(ga_flops, ga_match, marker='s', label='GA', linewidth=2, markersize=8)
-    axes[1, 0].set_xlabel('FLOPs', fontsize=12)
-    axes[1, 0].set_ylabel('Action Match Rate', fontsize=12)
-    axes[1, 0].set_title('Compute Efficiency: Match vs FLOPs', fontsize=13)
-    axes[1, 0].set_xscale('log')
+    axes[1, 0].plot(
+        dl_flops, dl_match, marker="o", label="DL", linewidth=2, markersize=8
+    )
+    axes[1, 0].plot(
+        ga_flops, ga_match, marker="s", label="GA", linewidth=2, markersize=8
+    )
+    axes[1, 0].set_xlabel("FLOPs", fontsize=12)
+    axes[1, 0].set_ylabel("Action Match Rate", fontsize=12)
+    axes[1, 0].set_title("Compute Efficiency: Match vs FLOPs", fontsize=13)
+    axes[1, 0].set_xscale("log")
     axes[1, 0].grid(True, alpha=0.3)
     axes[1, 0].legend(fontsize=11)
-    axes[1, 0].axhline(y=1.0, color='r', linestyle='--', alpha=0.5)
+    axes[1, 0].axhline(y=1.0, color="r", linestyle="--", alpha=0.5)
 
     # Plot 4: Episode Return vs FLOPs
-    axes[1, 1].plot(dl_flops, dl_return, marker='o', label='DL', linewidth=2, markersize=8)
-    axes[1, 1].plot(ga_flops, ga_return, marker='s', label='GA', linewidth=2, markersize=8)
-    axes[1, 1].set_xlabel('FLOPs', fontsize=12)
-    axes[1, 1].set_ylabel('Avg Episode Return', fontsize=12)
-    axes[1, 1].set_title('Compute Efficiency: Return vs FLOPs', fontsize=13)
-    axes[1, 1].set_xscale('log')
+    axes[1, 1].plot(
+        dl_flops, dl_return, marker="o", label="DL", linewidth=2, markersize=8
+    )
+    axes[1, 1].plot(
+        ga_flops, ga_return, marker="s", label="GA", linewidth=2, markersize=8
+    )
+    axes[1, 1].set_xlabel("FLOPs", fontsize=12)
+    axes[1, 1].set_ylabel("Avg Episode Return", fontsize=12)
+    axes[1, 1].set_title("Compute Efficiency: Return vs FLOPs", fontsize=13)
+    axes[1, 1].set_xscale("log")
     axes[1, 1].grid(True, alpha=0.3)
     axes[1, 1].legend(fontsize=11)
 
     plt.tight_layout()
-    plt.savefig('dl_vs_ga_scaling_v2.png', dpi=300, bbox_inches='tight')
+    plt.savefig("dl_vs_ga_scaling_v2.png", dpi=300, bbox_inches="tight")
     print("\nPlot saved as 'dl_vs_ga_scaling_v2.png'")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     results = run_scaling_experiments()
     plot_results(results)
