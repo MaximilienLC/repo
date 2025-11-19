@@ -5,3 +5,6 @@ __pycache__
 *.json
 output.txt
 results/
+.claude/
+.vscode/
+.gemini/

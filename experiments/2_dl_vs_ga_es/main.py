@@ -58,44 +58,8 @@ class ExperimentConfig:
     fixed_sigma: float = 1e-3
     adaptive_sigma_init: float = 1e-3
     adaptive_sigma_noise: float = 1e-2
-    # Convergence parameters (patience-based)
-    convergence_patience: int = 200  # Stop if no improvement in this many evaluations
-    convergence_min_improvement: float = (
-        1e-4  # Minimum improvement to count as progress
-    )
     # Random seed
     seed: int = 42
-
-
-@dataclass
-class ConvergenceChecker:
-    """Check for convergence based on F1 score history."""
-
-    patience: int = 200  # Number of evaluations without improvement before stopping
-    min_improvement: float = 1e-4  # Minimum improvement to reset patience counter
-
-    def is_converged(self, f1_history: list[float]) -> bool:
-        """Check if training has converged based on best F1 improvement."""
-        # Need at least patience+1 evaluations to compare windows
-        if len(f1_history) <= self.patience:
-            return False
-
-        # Check if we've reached very high F1
-        if f1_history[-1] >= 0.99:
-            return True
-
-        # Find the best F1 in the history (excluding last `patience` evaluations)
-        # and check if we've improved since then
-        before_window: list[float] = f1_history[: -self.patience]
-        if not before_window:
-            return False
-
-        best_before_window: float = max(before_window)
-        best_in_window: float = max(f1_history[-self.patience :])
-
-        # Converged if best F1 hasn't improved meaningfully
-        improvement: float = best_in_window - best_before_window
-        return improvement < self.min_improvement
 
 
 def save_results(dataset_name: str, method_name: str, data: dict) -> None:
@@ -155,6 +119,13 @@ def update_plot(dataset_name: str, interactive: bool = False) -> None:
 
     fig.suptitle(f"{dataset_name} - Real-time Results", fontsize=14)
 
+    # Create consistent color mapping for all methods
+    all_method_names: list[str] = sorted(results.keys())
+    color_map: dict[str, tuple] = {}
+    colors_palette = plt.cm.tab10(np.linspace(0, 1, 10))
+    for idx, method_name in enumerate(all_method_names):
+        color_map[method_name] = colors_palette[idx % 10]
+
     # Plot 1: Test CE Loss Curves (CE-optimizing methods only)
     ax1 = axes[0]
     ax1.clear()
@@ -162,11 +133,19 @@ def update_plot(dataset_name: str, interactive: bool = False) -> None:
         # Only show CE-optimizing methods (exclude F1-optimizing NE methods)
         if "_F1" in method_name:
             continue
-        if "test_loss" in data:
+        if "test_loss" in data and data["test_loss"]:
             # Plot test loss vs runtime % (test_loss is a list now)
             if isinstance(data["test_loss"], list):
-                runtime_pct: np.ndarray = np.linspace(0, 100, len(data["test_loss"]))
-                ax1.plot(runtime_pct, data["test_loss"], label=method_name, alpha=0.8)
+                runtime_pct: np.ndarray = np.linspace(
+                    0, 100, len(data["test_loss"])
+                )
+                ax1.plot(
+                    runtime_pct,
+                    data["test_loss"],
+                    label=method_name,
+                    color=color_map[method_name],
+                    alpha=0.8,
+                )
     ax1.set_xlabel("Runtime %")
     ax1.set_ylabel("Cross-Entropy Loss")
     ax1.set_title("CE Loss")
@@ -179,7 +158,13 @@ def update_plot(dataset_name: str, interactive: bool = False) -> None:
     for method_name, data in results.items():
         if "f1" in data and data["f1"]:
             runtime_pct = np.linspace(0, 100, len(data["f1"]))
-            ax2.plot(runtime_pct, data["f1"], label=method_name, alpha=0.8)
+            ax2.plot(
+                runtime_pct,
+                data["f1"],
+                label=method_name,
+                color=color_map[method_name],
+                alpha=0.8,
+            )
     ax2.set_xlabel("Runtime %")
     ax2.set_ylabel("Macro F1 Score")
     ax2.set_title("Macro F1 Score")
@@ -199,13 +184,16 @@ def update_plot(dataset_name: str, interactive: bool = False) -> None:
 
     # Sort methods by F1 score (best to worst)
     if methods and final_f1s:
-        sorted_pairs = sorted(zip(methods, final_f1s), key=lambda x: x[1], reverse=True)
+        sorted_pairs = sorted(
+            zip(methods, final_f1s), key=lambda x: x[1], reverse=True
+        )
         methods = [p[0] for p in sorted_pairs]
         final_f1s = [p[1] for p in sorted_pairs]
 
     if methods and final_f1s:
-        colors = plt.cm.tab10(np.linspace(0, 1, len(methods)))
-        bars = ax3.bar(range(len(methods)), final_f1s, color=colors)
+        # Use consistent colors from color_map
+        bar_colors = [color_map[m] for m in methods]
+        bars = ax3.bar(range(len(methods)), final_f1s, color=bar_colors)
         ax3.set_xticks(range(len(methods)))
         ax3.set_xticklabels(methods, rotation=45, ha="right", fontsize=8)
         ax3.set_ylabel("Final Macro F1 Score")
@@ -223,7 +211,9 @@ def update_plot(dataset_name: str, interactive: bool = False) -> None:
             )
 
     plt.tight_layout()
-    plot_path: Path = SCRIPT_DIR / f"{dataset_name.lower().replace('-', '_')}.png"
+    plot_path: Path = (
+        SCRIPT_DIR / f"{dataset_name.lower().replace('-', '_')}.png"
+    )
     plt.savefig(plot_path, dpi=150, bbox_inches="tight")
 
     if interactive:
@@ -266,7 +256,9 @@ def load_cartpole_data() -> tuple[
     test_obs: Float[Tensor, "test_size 4"] = obs_tensor[train_size:]
     test_act: Int[Tensor, " test_size"] = act_tensor[train_size:]
 
-    print(f"  Done: {train_obs.shape[0]} train, {test_obs.shape[0]} test samples")
+    print(
+        f"  Done: {train_obs.shape[0]} train, {test_obs.shape[0]} test samples"
+    )
     return train_obs, train_act, test_obs, test_act
 
 
@@ -302,14 +294,18 @@ def load_lunarlander_data() -> tuple[
     test_obs: Float[Tensor, "test_size 8"] = obs_tensor[train_size:]
     test_act: Int[Tensor, " test_size"] = act_tensor[train_size:]
 
-    print(f"  Done: {train_obs.shape[0]} train, {test_obs.shape[0]} test samples")
+    print(
+        f"  Done: {train_obs.shape[0]} train, {test_obs.shape[0]} test samples"
+    )
     return train_obs, train_act, test_obs, test_act
 
 
 class MLP(nn.Module):
     """Two-layer MLP with tanh activations."""
 
-    def __init__(self, input_size: int, hidden_size: int, output_size: int) -> None:
+    def __init__(
+        self, input_size: int, hidden_size: int, output_size: int
+    ) -> None:
         super().__init__()
         self.fc1: nn.Linear = nn.Linear(input_size, hidden_size)
         self.fc2: nn.Linear = nn.Linear(hidden_size, output_size)
@@ -396,13 +392,10 @@ def train_deep_learning(
     test_loss_history: list[float] = []
     f1_history: list[float] = []
 
-    convergence_checker: ConvergenceChecker = ConvergenceChecker(
-        patience=config.convergence_patience,
-        min_improvement=config.convergence_min_improvement,
-    )
-
     # Checkpointing paths
-    checkpoint_path: Path = RESULTS_DIR / f"{dataset_name}_{method_name}_checkpoint.pt"
+    checkpoint_path: Path = (
+        RESULTS_DIR / f"{dataset_name}_{method_name}_checkpoint.pt"
+    )
 
     # Try to resume from checkpoint
     start_epoch: int = 0
@@ -423,7 +416,9 @@ def train_deep_learning(
         epoch_losses: list[float] = []
 
         for batch_obs, batch_act in train_loader:
-            batch_obs_gpu: Float[Tensor, "BS input_size"] = batch_obs.to(DEVICE)
+            batch_obs_gpu: Float[Tensor, "BS input_size"] = batch_obs.to(
+                DEVICE
+            )
             batch_act_gpu: Int[Tensor, " BS"] = batch_act.to(DEVICE)
 
             optimizer.zero_grad()
@@ -480,11 +475,6 @@ def train_deep_learning(
                 }
                 torch.save(checkpoint_data, checkpoint_path)
 
-            # Check convergence
-            if convergence_checker.is_converged(f1_history):
-                print(f"  Converged at epoch {epoch}")
-                break
-
         epoch += 1
 
     return loss_history, f1_history
@@ -517,13 +507,15 @@ class BatchedPopulation:
         fc2_std: float = (1.0 / hidden_size) ** 0.5
 
         self.fc1_weight: Float[Tensor, "pop_size hidden_size input_size"] = (
-            torch.randn(pop_size, hidden_size, input_size, device=DEVICE) * fc1_std
+            torch.randn(pop_size, hidden_size, input_size, device=DEVICE)
+            * fc1_std
         )
         self.fc1_bias: Float[Tensor, "pop_size hidden_size"] = (
             torch.randn(pop_size, hidden_size, device=DEVICE) * fc1_std
         )
         self.fc2_weight: Float[Tensor, "pop_size output_size hidden_size"] = (
-            torch.randn(pop_size, output_size, hidden_size, device=DEVICE) * fc2_std
+            torch.randn(pop_size, output_size, hidden_size, device=DEVICE)
+            * fc2_std
         )
         self.fc2_bias: Float[Tensor, "pop_size output_size"] = (
             torch.randn(pop_size, output_size, device=DEVICE) * fc2_std
@@ -531,15 +523,15 @@ class BatchedPopulation:
 
         # Initialize adaptive sigmas if needed
         if adaptive_sigma:
-            self.fc1_weight_sigma: Float[Tensor, "pop_size hidden_size input_size"] = (
-                torch.full_like(self.fc1_weight, sigma_init)
-            )
+            self.fc1_weight_sigma: Float[
+                Tensor, "pop_size hidden_size input_size"
+            ] = torch.full_like(self.fc1_weight, sigma_init)
             self.fc1_bias_sigma: Float[Tensor, "pop_size hidden_size"] = (
                 torch.full_like(self.fc1_bias, sigma_init)
             )
-            self.fc2_weight_sigma: Float[Tensor, "pop_size output_size hidden_size"] = (
-                torch.full_like(self.fc2_weight, sigma_init)
-            )
+            self.fc2_weight_sigma: Float[
+                Tensor, "pop_size output_size hidden_size"
+            ] = torch.full_like(self.fc2_weight, sigma_init)
             self.fc2_bias_sigma: Float[Tensor, "pop_size output_size"] = (
                 torch.full_like(self.fc2_bias, sigma_init)
             )
@@ -549,9 +541,9 @@ class BatchedPopulation:
     ) -> Float[Tensor, "pop_size N output_size"]:
         """Batched forward pass for all networks in parallel."""
         # x: [N, input_size] -> expand to [pop_size, N, input_size]
-        x_expanded: Float[Tensor, "pop_size N input_size"] = x.unsqueeze(0).expand(
-            self.pop_size, -1, -1
-        )
+        x_expanded: Float[Tensor, "pop_size N input_size"] = x.unsqueeze(
+            0
+        ).expand(self.pop_size, -1, -1)
 
         # First layer: [pop_size, N, input_size] @ [pop_size, input_size, hidden_size]
         # fc1_weight is [pop_size, hidden_size, input_size], need to transpose
@@ -606,16 +598,20 @@ class BatchedPopulation:
         else:
             # Fixed sigma mutation
             self.fc1_weight = (
-                self.fc1_weight + torch.randn_like(self.fc1_weight) * self.sigma_init
+                self.fc1_weight
+                + torch.randn_like(self.fc1_weight) * self.sigma_init
             )
             self.fc1_bias = (
-                self.fc1_bias + torch.randn_like(self.fc1_bias) * self.sigma_init
+                self.fc1_bias
+                + torch.randn_like(self.fc1_bias) * self.sigma_init
             )
             self.fc2_weight = (
-                self.fc2_weight + torch.randn_like(self.fc2_weight) * self.sigma_init
+                self.fc2_weight
+                + torch.randn_like(self.fc2_weight) * self.sigma_init
             )
             self.fc2_bias = (
-                self.fc2_bias + torch.randn_like(self.fc2_bias) * self.sigma_init
+                self.fc2_bias
+                + torch.randn_like(self.fc2_bias) * self.sigma_init
             )
 
     def evaluate(
@@ -629,31 +625,35 @@ class BatchedPopulation:
         """Evaluate fitness of all networks in parallel."""
         with torch.no_grad():
             # Get logits for all networks: [pop_size, N, output_size]
-            all_logits: Float[Tensor, "pop_size N output_size"] = self.forward_batch(
-                observations
+            all_logits: Float[Tensor, "pop_size N output_size"] = (
+                self.forward_batch(observations)
             )
 
             if fitness_type == "cross_entropy":
                 # Compute cross-entropy for all networks in parallel
                 # actions: [N] -> expand to [pop_size, N]
-                actions_expanded: Int[Tensor, "pop_size N"] = actions.unsqueeze(
-                    0
-                ).expand(self.pop_size, -1)
+                actions_expanded: Int[Tensor, "pop_size N"] = (
+                    actions.unsqueeze(0).expand(self.pop_size, -1)
+                )
 
                 # Reshape for cross_entropy: [pop_size * N, output_size] and [pop_size * N]
-                flat_logits: Float[Tensor, "pop_sizexN output_size"] = all_logits.view(
-                    -1, self.output_size
+                flat_logits: Float[Tensor, "pop_sizexN output_size"] = (
+                    all_logits.view(-1, self.output_size)
                 )
-                flat_actions: Int[Tensor, " pop_sizexN"] = actions_expanded.reshape(-1)
+                flat_actions: Int[Tensor, " pop_sizexN"] = (
+                    actions_expanded.reshape(-1)
+                )
 
                 # Compute per-sample CE then reshape and mean per network
                 per_sample_ce: Float[Tensor, " pop_sizexN"] = F.cross_entropy(
                     flat_logits, flat_actions, reduction="none"
                 )
-                per_network_ce: Float[Tensor, "pop_size N"] = per_sample_ce.view(
-                    self.pop_size, -1
+                per_network_ce: Float[Tensor, "pop_size N"] = (
+                    per_sample_ce.view(self.pop_size, -1)
                 )
-                fitness: Float[Tensor, " pop_size"] = per_network_ce.mean(dim=1)
+                fitness: Float[Tensor, " pop_size"] = per_network_ce.mean(
+                    dim=1
+                )
             else:  # macro_f1
                 # F1 requires sampling and sklearn, so we need to loop
                 # But we can still batch the probability computation
@@ -695,7 +695,9 @@ class BatchedPopulation:
 
         # Top 50% survive
         num_survivors: int = self.pop_size // 2
-        survivor_indices: Int[Tensor, " num_survivors"] = sorted_indices[:num_survivors]
+        survivor_indices: Int[Tensor, " num_survivors"] = sorted_indices[
+            :num_survivors
+        ]
 
         # Create mapping: each loser gets replaced by a survivor
         # Loser i gets survivor[i % num_survivors]
@@ -727,9 +729,9 @@ class BatchedPopulation:
         """Simple ES selection: weighted combination of all networks (vectorized)."""
         # Standardize fitness
         if minimize:
-            fitness_std: Float[Tensor, " pop_size"] = (-fitness - (-fitness).mean()) / (
-                fitness.std() + 1e-8
-            )
+            fitness_std: Float[Tensor, " pop_size"] = (
+                -fitness - (-fitness).mean()
+            ) / (fitness.std() + 1e-8)
         else:
             fitness_std = (fitness - fitness.mean()) / (fitness.std() + 1e-8)
         weights: Float[Tensor, " pop_size"] = F.softmax(fitness_std, dim=0)
@@ -750,10 +752,12 @@ class BatchedPopulation:
         )
 
         w_fc1_bias: Float[Tensor, "pop_size 1"] = weights.view(-1, 1)
-        avg_fc1_bias: Float[Tensor, " hidden_size"] = (w_fc1_bias * self.fc1_bias).sum(
-            dim=0
+        avg_fc1_bias: Float[Tensor, " hidden_size"] = (
+            w_fc1_bias * self.fc1_bias
+        ).sum(dim=0)
+        self.fc1_bias = (
+            avg_fc1_bias.unsqueeze(0).expand(self.pop_size, -1).clone()
         )
-        self.fc1_bias = avg_fc1_bias.unsqueeze(0).expand(self.pop_size, -1).clone()
 
         w_fc2: Float[Tensor, "pop_size 1 1"] = weights.view(-1, 1, 1)
         avg_fc2_weight: Float[Tensor, "output_size hidden_size"] = (
@@ -764,38 +768,48 @@ class BatchedPopulation:
         )
 
         w_fc2_bias: Float[Tensor, "pop_size 1"] = weights.view(-1, 1)
-        avg_fc2_bias: Float[Tensor, " output_size"] = (w_fc2_bias * self.fc2_bias).sum(
-            dim=0
+        avg_fc2_bias: Float[Tensor, " output_size"] = (
+            w_fc2_bias * self.fc2_bias
+        ).sum(dim=0)
+        self.fc2_bias = (
+            avg_fc2_bias.unsqueeze(0).expand(self.pop_size, -1).clone()
         )
-        self.fc2_bias = avg_fc2_bias.unsqueeze(0).expand(self.pop_size, -1).clone()
 
         if self.adaptive_sigma:
             avg_fc1_weight_sigma: Float[Tensor, "hidden_size input_size"] = (
                 w_fc1 * self.fc1_weight_sigma
             ).sum(dim=0)
             self.fc1_weight_sigma = (
-                avg_fc1_weight_sigma.unsqueeze(0).expand(self.pop_size, -1, -1).clone()
+                avg_fc1_weight_sigma.unsqueeze(0)
+                .expand(self.pop_size, -1, -1)
+                .clone()
             )
 
             avg_fc1_bias_sigma: Float[Tensor, " hidden_size"] = (
                 w_fc1_bias * self.fc1_bias_sigma
             ).sum(dim=0)
             self.fc1_bias_sigma = (
-                avg_fc1_bias_sigma.unsqueeze(0).expand(self.pop_size, -1).clone()
+                avg_fc1_bias_sigma.unsqueeze(0)
+                .expand(self.pop_size, -1)
+                .clone()
             )
 
             avg_fc2_weight_sigma: Float[Tensor, "output_size hidden_size"] = (
                 w_fc2 * self.fc2_weight_sigma
             ).sum(dim=0)
             self.fc2_weight_sigma = (
-                avg_fc2_weight_sigma.unsqueeze(0).expand(self.pop_size, -1, -1).clone()
+                avg_fc2_weight_sigma.unsqueeze(0)
+                .expand(self.pop_size, -1, -1)
+                .clone()
             )
 
             avg_fc2_bias_sigma: Float[Tensor, " output_size"] = (
                 w_fc2_bias * self.fc2_bias_sigma
             ).sum(dim=0)
             self.fc2_bias_sigma = (
-                avg_fc2_bias_sigma.unsqueeze(0).expand(self.pop_size, -1).clone()
+                avg_fc2_bias_sigma.unsqueeze(0)
+                .expand(self.pop_size, -1)
+                .clone()
             )
 
     def get_best_network_state(
@@ -822,8 +836,12 @@ class BatchedPopulation:
         self, fitness: Float[Tensor, " pop_size"], minimize: bool = False
     ) -> MLP:
         """Create an MLP from the best network's parameters."""
-        fc1_w, fc1_b, fc2_w, fc2_b = self.get_best_network_state(fitness, minimize)
-        mlp: MLP = MLP(self.input_size, self.hidden_size, self.output_size).to(DEVICE)
+        fc1_w, fc1_b, fc2_w, fc2_b = self.get_best_network_state(
+            fitness, minimize
+        )
+        mlp: MLP = MLP(self.input_size, self.hidden_size, self.output_size).to(
+            DEVICE
+        )
         mlp.fc1.weight.data = fc1_w
         mlp.fc1.bias.data = fc1_b
         mlp.fc2.weight.data = fc2_w
@@ -873,7 +891,9 @@ def train_neuroevolution(
     fitness_type: str = "cross_entropy",
 ) -> tuple[list[float], list[float]]:
     """Train using Neuroevolution with batched GPU operations."""
-    train_obs_gpu: Float[Tensor, "train_size input_size"] = train_obs.to(DEVICE)
+    train_obs_gpu: Float[Tensor, "train_size input_size"] = train_obs.to(
+        DEVICE
+    )
     train_act_gpu: Int[Tensor, " train_size"] = train_act.to(DEVICE)
     test_obs_gpu: Float[Tensor, "test_size input_size"] = test_obs.to(DEVICE)
     test_act_gpu: Int[Tensor, " test_size"] = test_act.to(DEVICE)
@@ -901,13 +921,10 @@ def train_neuroevolution(
     test_loss_history: list[float] = []
     f1_history: list[float] = []
 
-    convergence_checker: ConvergenceChecker = ConvergenceChecker(
-        patience=config.convergence_patience,
-        min_improvement=config.convergence_min_improvement,
-    )
-
     # Checkpointing paths
-    checkpoint_path: Path = RESULTS_DIR / f"{dataset_name}_{method_name}_checkpoint.pt"
+    checkpoint_path: Path = (
+        RESULTS_DIR / f"{dataset_name}_{method_name}_checkpoint.pt"
+    )
 
     # Try to resume from checkpoint
     start_gen: int = 0
@@ -940,14 +957,20 @@ def train_neuroevolution(
         batch_obs: Float[Tensor, "eval_batch_size input_size"] = train_obs_gpu[
             batch_indices
         ]
-        batch_act: Int[Tensor, " eval_batch_size"] = train_act_gpu[batch_indices]
+        batch_act: Int[Tensor, " eval_batch_size"] = train_act_gpu[
+            batch_indices
+        ]
 
         # Mutation
         population.mutate()
 
         # Evaluation (batched on GPU)
         fitness: Float[Tensor, " pop_size"] = population.evaluate(
-            batch_obs, batch_act, fitness_type, output_size, config.num_f1_samples
+            batch_obs,
+            batch_act,
+            fitness_type,
+            output_size,
+            config.num_f1_samples,
         )
 
         # Selection (vectorized)
@@ -965,7 +988,9 @@ def train_neuroevolution(
 
         # Evaluate on test set
         if gen % config.eval_frequency == 0:
-            best_net: MLP = population.create_best_mlp(fitness, minimize=minimize)
+            best_net: MLP = population.create_best_mlp(
+                fitness, minimize=minimize
+            )
             best_net.eval()
             with torch.no_grad():
                 test_loss: float = compute_cross_entropy(
@@ -1006,11 +1031,6 @@ def train_neuroevolution(
                 }
                 torch.save(checkpoint_data, checkpoint_path)
 
-            # Check convergence
-            if convergence_checker.is_converged(f1_history):
-                print(f"  Converged at generation {gen}")
-                break
-
         gen += 1
 
     return fitness_history, f1_history
@@ -1023,7 +1043,10 @@ def get_all_methods() -> list[tuple[str, dict]]:
     ]
 
     algorithms: list[str] = ["simple_ga", "simple_es"]
-    sigma_modes: list[tuple[str, bool]] = [("fixed", False), ("adaptive", True)]
+    sigma_modes: list[tuple[str, bool]] = [
+        ("fixed", False),
+        ("adaptive", True),
+    ]
     fitness_types: list[str] = ["cross_entropy", "macro_f1"]
 
     for algo in algorithms:
@@ -1097,7 +1120,9 @@ def run_single_method(
 
 def main() -> None:
     """Main function to run Experiment 1."""
-    parser = argparse.ArgumentParser(description="Experiment 1: DL vs Neuroevolution")
+    parser = argparse.ArgumentParser(
+        description="Experiment 1: DL vs Neuroevolution"
+    )
     parser.add_argument(
         "--dataset",
         type=str,
@@ -1111,7 +1136,9 @@ def main() -> None:
         help="Method to run (e.g., SGD, simple_ga_fixed_CE). Use --list-methods to see all options.",
     )
     parser.add_argument(
-        "--list-methods", action="store_true", help="List all available methods"
+        "--list-methods",
+        action="store_true",
+        help="List all available methods",
     )
     parser.add_argument(
         "--plot-only",
@@ -1167,7 +1194,9 @@ def main() -> None:
 
     # Check method
     if not args.method:
-        print("Error: --method is required unless using --list-methods or --plot-only")
+        print(
+            "Error: --method is required unless using --list-methods or --plot-only"
+        )
         return
 
     if args.method not in method_dict:

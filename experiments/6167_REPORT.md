@@ -1,27 +1,37 @@
 - [Overview](#overview)
   - [Motivation](#motivation)
   - [Neuroevolution](#neuroevolution)
-- [I. Comparing Deep Learning and Neuroevolution in low-dimensional tasks](#i-comparing-deep-learning-and-neuroevolution-in-low-dimensional-tasks)
+- [Comparing Deep Learning and Neuroevolution in low-dimensional tasks](#comparing-deep-learning-and-neuroevolution-in-low-dimensional-tasks)
   - [1. Modeling state-action pairs](#1-modeling-state-action-pairs)
-    - [Experiment 1](#experiment-1)
+    - [Experiment 1: Scaling Law Analysis - Dataset Size vs Performance](#experiment-1-scaling-law-analysis---dataset-size-vs-performance)
       - [Data](#data)
       - [Network setup](#network-setup)
+      - [Methods](#methods)
+      - [Evaluation Metrics](#evaluation-metrics)
+      - [Results](#results)
+      - [Analysis](#analysis)
+      - [Plots](#plots)
+      - [Issues](#issues)
+    - [Experiment 2: Comparing methods more fairly](#experiment-2-comparing-methods-more-fairly)
+      - [Data](#data-1)
+      - [Network setup](#network-setup-1)
       - [Optimization/Evaluation functions](#optimizationevaluation-functions)
       - [Neuroevolution algorithms](#neuroevolution-algorithms)
       - [Optimization](#optimization)
-      - [Plots](#plots)
+      - [Plots](#plots-1)
       - [Hypothesis \& Results](#hypothesis--results)
         - [Performance gap between SGD \& NE Methods](#performance-gap-between-sgd--ne-methods)
         - [Remaining differences in compute use](#remaining-differences-in-compute-use)
-    - [Experiment 2](#experiment-2)
+  - [2. Modeling continual behaviour](#2-modeling-continual-behaviour)
+      - [](#)
 
 # Overview
 
 ## Motivation
 
-Deep Learning methods have pretty much yielded the entirety modern progress in AI. However, we hypothesize that several of its properties (e.g., differentiability constraint, data hyperdependency, data hunger, lack of causal abstraction, overparameterization bias & representation entanglement) make it, by itself, a sub-optimal choice for various tasks. All computational methods have strengths and weaknesses and we believe there is unexplored value to be found in mixing them.
+Deep Learning methods have pretty much yielded the entirety modern progress in AI. However, we hypothesize that several of its properties (e.g., differentiability constraint, data hyperdependency, data hunger, lack of causal abstraction, overparameterization bias & representation entanglement) make it, standalone, a sub-optimal choice for various tasks. All computational methods have strengths and weaknesses and we believe there is unexplored value to be found in mixing them.
 
-For instance, we believe Deep Learning-only methods to be suboptimal for human behaviour cloning, which we focus on in this project.
+For instance, we believe Deep Learning-only methods to be sub-optimal for human behaviour cloning, which we focus on in this project.
 
 ## Neuroevolution
 
@@ -29,17 +39,15 @@ Neuroevolution is a distant cousin of Deep Learning. They both optimize artifica
 
 Neuroevolution methods have several advantageous properties over Deep Learning (e.g. can optimize any functions whose outputs can be ranked, explicit exploration mechanisms that promote discovery beyond data-implied regions, more leeway to evolve modular structures that exhibit causal abstraction and reuse). However, their sole reliance on the selection mechanism to propagate information derived from data typically results in less efficient scaling compared to DL's backpropagation.
 
-# I. Comparing Deep Learning and Neuroevolution in low-dimensional tasks
+# Comparing Deep Learning and Neuroevolution in low-dimensional tasks
 
-Given its relatively relaxed requirements, we believe that as long as mastering a behaviour cloning task does not require encoding too much information, Neuroevolution methods ought to outperform equally well-calibrated [*] Deep Learning methods in perfecting behaviour cloning tasks.
+We propose to first try to find particular settings where Neuroevolution has direct practical benefits over Deep Learning.
 
-We set ourselves out to observe such phenomena.
-
-[*] We say "equally well-calibrated" because Neuroevolution is relatively unexplored compared to Deep Learning. For instance, Neuroevolution methods do not have their own, widely acclaimed version of AdamW, layer-norm, etc. In order to fairly compare both methods, we will need to experiment with equivalently barebone Deep Learning methods.
+Given that Neuroevolution is known not to scale well to information-rich domains, we propose to restrict ourselves to the following low-dimensional tasks: `Acrobot`, `CartPole`, `MountainCar` and `LunarLander`.
 
 ## 1. Modeling state-action pairs
 
-We begin with the task of `modeling state-action pair` datasets created from pre-trained Reinforcement Learning policies available on HuggingFace.
+We propose to begin our experiments with the task of `modeling state-action pair` datasets created from pre-trained Reinforcement Learning policies available on HuggingFace. The purpose here is to simply get a first feel of how the methods behave.
 
 ### Experiment 1: Scaling Law Analysis - Dataset Size vs Performance
 
@@ -66,14 +74,13 @@ Both methods optimize a 2-layer MLP:
 - Optimizer: Adam with learning rate 1e-3
 - Loss function: Cross-entropy
 - Training: 150 epochs, batch size 64
-- Total parameters: ~2,530
 
 **Genetic Algorithm:**
 - Population size: 100 individuals
 - Generations: 100
 - Selection: Tournament selection (k=3) with elitism (best individual preserved)
 - Mutation: Gaussian noise with mutation rate 0.01
-- Fitness function: Action match accuracy on training set
+- Fitness function: Action match accuracy on whole training set
 
 #### Evaluation Metrics
 
@@ -127,17 +134,27 @@ This experiment contradicts our initial hypothesis that "DL methods are less cap
 
 #### Plots
 
-![Scaling Law Analysis Results](../1_dl_vs_ga_scaling_dataset_size_flops/dl_vs_ga_scaling_v2.png)
-
 Four-panel comparison showing:
 1. **Top-left**: Action Match Rate vs Dataset Size - DL rapidly approaches perfect performance while GA plateaus
 2. **Top-right**: Episode Return vs Dataset Size - DL achieves maximum return (500) while GA remains inconsistent
 3. **Bottom-left**: Action Match Rate vs FLOPs - DL achieves better performance with fewer compute resources
 4. **Bottom-right**: Episode Return vs FLOPs - Compute efficiency advantage of DL is clear
 
-### Experiment 2: Comparing Neuroevolution Variants
+![Scaling Law Analysis Results](1_dl_vs_ga_scaling_dataset_size_flops/main.png)
 
-Given the poor performance of the basic GA in Experiment 1, we conduct a more thorough comparison of different neuroevolution approaches to determine if the performance gap can be addressed through algorithmic improvements.
+#### Issues
+
+This experiment was vibe-coded and thus has several flaws. The biggest is that GAs, every generation calculate over the whole training set in one-go, no mini-batches. This means that GAs had 100 update steps while DL had 150 x dataset_size / 64 updates.
+
+Rather than attempt to address each of these issues, we propose to learn from it heading into experiment 2.
+
+### Experiment 2: Comparing methods more fairly
+
+Heading into experiment 2, we propose to more fairly calibrate both class of methods. We make the following changes:
+- We make EAs optimize over mini-batches of the same size as DL methods.
+- We propose to compare results based on total runtime (EA generations are much faster than DL optimization steps)
+- We GPU-proof the EAs: In experiment 1, agents in the population get evaluated on the GPU one by one in a loop. This time around we run batch matrix multiplications to allow the whole evaluation to run on the GPU.
+- We strip both EAs and GAs to their simplest (explained below).
 
 #### Data
 
@@ -202,6 +219,9 @@ We generate the following plots for each dataset:
 
 3. **Final Macro F1 Score**: Bar chart comparing final macro F1 scores across all methods, sorted from best to worst performance, with numerical values displayed above each bar.
 
+![Plot 2](2_dl_vs_ga_es/cartpole_v1.png)
+![Plot 2](2_dl_vs_ga_es/lunarlander_v2.png)
+
 #### Hypothesis & Results
 
 ##### Performance gap between SGD & NE Methods
@@ -214,7 +234,26 @@ Regardless of the NE method used,
 - pop size
 - resource utilization
 
-### Experiment 3
+## 2. Modeling continual behaviour
 
-In Experiment 3, we wish to start getting a better a feel of whether the performance gap of neuroevolution methods is addressable. In Experiment 2, we set the population size to 50 for all neuroevolution methods. In this experiment, we set out to look into the impact of that variable.
+Human behaviour is not fixed. Not a list of frozen weights we can load and rollout hundreds of thousands of time
 
+In the second section of this project, we propose to work on modeling the continual behaviour of human subjects.
+
+We asked 3 subjects to perform 4 different virtual tasks/games over the course of several days and collected their data through a script we developed.
+
+The tasks were:
+- `Acrobot`: Swing a fixed two-link chain left/right to reach a
+- `CartPole`: Move a cart left/right to prevent a pole from falling
+- `MountainCar`: Roll a car left/right up/down a hill to reach a flag on the right
+- `LunarLander`: Rocket boost down/left/right to land a lunar lander within a flagged region
+
+We gave no instruction nor information about what the games are about to the participants. We asked the participants simply to play, whether or not they wanted to win or optimize their score was up to them.
+
+In the data, we collect, for every episode the exact start time of the episode.
+
+####
+
+Our modeling task is: for each
+
+We take episode 1, set its value to -1 take the last episode, set its value to 1 and everything else between -1 and 1.

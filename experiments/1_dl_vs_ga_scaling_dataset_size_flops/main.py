@@ -142,7 +142,13 @@ def estimate_flops_forward_pass(model, input_dim):
 
 
 def train_dl_bc(
-    states, actions, lr=1e-3, batch_size=64, epochs=100, state_dim=4, action_dim=2
+    states,
+    actions,
+    lr=1e-3,
+    batch_size=64,
+    epochs=100,
+    state_dim=4,
+    action_dim=2,
 ):
     """Train behavior cloning with deep learning, tracking FLOPs"""
     dataset = TrajectoryDataset(states, actions)
@@ -363,7 +369,9 @@ def run_scaling_experiments():
         )
         train_time = time.time() - start_time
 
-        match_rate = compute_action_match_rate(policy, test_states, test_actions)
+        match_rate = compute_action_match_rate(
+            policy, test_states, test_actions
+        )
         avg_return, _ = evaluate_policy(policy, num_episodes=50)
 
         results["dl"]["action_match"].append(match_rate)
@@ -402,7 +410,9 @@ def run_scaling_experiments():
         )
         train_time = time.time() - start_time
 
-        match_rate = compute_action_match_rate(policy, test_states, test_actions)
+        match_rate = compute_action_match_rate(
+            policy, test_states, test_actions
+        )
         avg_return, _ = evaluate_policy(policy, num_episodes=50)
 
         results["ga"]["action_match"].append(match_rate)
@@ -411,7 +421,9 @@ def run_scaling_experiments():
         results["ga"]["evaluations"].append(evals)
 
         print(f"  GA - Match: {match_rate:.4f}, Return: {avg_return:.2f}")
-        print(f"       FLOPs: {flops:.2e}, Evals: {evals}, Time: {train_time:.1f}s")
+        print(
+            f"       FLOPs: {flops:.2e}, Evals: {evals}, Time: {train_time:.1f}s"
+        )
 
     # Save results
     with open("scaling_results_v2.pkl", "wb") as f:
@@ -458,11 +470,15 @@ def plot_results(results):
     )
     axes[0, 0].set_xlabel("Dataset Size", fontsize=12)
     axes[0, 0].set_ylabel("Action Match Rate", fontsize=12)
-    axes[0, 0].set_title("Saturation: Action Match vs Dataset Size", fontsize=13)
+    axes[0, 0].set_title(
+        "Saturation: Action Match vs Dataset Size", fontsize=13
+    )
     axes[0, 0].set_xscale("log")
     axes[0, 0].grid(True, alpha=0.3)
     axes[0, 0].legend(fontsize=11)
-    axes[0, 0].axhline(y=1.0, color="r", linestyle="--", alpha=0.5, label="Perfect")
+    axes[0, 0].axhline(
+        y=1.0, color="r", linestyle="--", alpha=0.5, label="Perfect"
+    )
 
     # Plot 2: Episode Return vs Dataset Size
     axes[0, 1].plot(
