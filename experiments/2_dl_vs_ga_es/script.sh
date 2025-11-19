@@ -4,29 +4,76 @@
 WORK_DIR="experiments/2_dl_vs_ga_es/"
 VENV_ACTIVATE=". /scratch/mleclei/venv/bin/activate"
 
-# Array of all 18 commands
+# Array of all 54 commands (9 methods × 3 dataset sizes × 2 datasets)
 commands=(
-    "python -u main.py --dataset cartpole --method SGD --gpu 0"
-    "python -u main.py --dataset cartpole --method simple_ga_fixed_CE --gpu 0"
-    "python -u main.py --dataset cartpole --method simple_ga_fixed_F1 --gpu 0"
-    "python -u main.py --dataset cartpole --method simple_ga_adaptive_CE --gpu 0"
-    "python -u main.py --dataset cartpole --method simple_ga_adaptive_F1 --gpu 0"
-    "python -u main.py --dataset cartpole --method simple_es_fixed_CE --gpu 0"
-    "python -u main.py --dataset cartpole --method simple_es_fixed_F1 --gpu 0"
-    "python -u main.py --dataset cartpole --method simple_es_adaptive_CE --gpu 0"
-    "python -u main.py --dataset cartpole --method simple_es_adaptive_F1 --gpu 0"
-    "python -u main.py --dataset lunarlander --method SGD --gpu 1"
-    "python -u main.py --dataset lunarlander --method simple_ga_fixed_CE --gpu 1"
-    "python -u main.py --dataset lunarlander --method simple_ga_fixed_F1 --gpu 1"
-    "python -u main.py --dataset lunarlander --method simple_ga_adaptive_CE --gpu 1"
-    "python -u main.py --dataset lunarlander --method simple_ga_adaptive_F1 --gpu 1"
-    "python -u main.py --dataset lunarlander --method simple_es_fixed_CE --gpu 1"
-    "python -u main.py --dataset lunarlander --method simple_es_fixed_F1 --gpu 1"
-    "python -u main.py --dataset lunarlander --method simple_es_adaptive_CE --gpu 1"
-    "python -u main.py --dataset lunarlander --method simple_es_adaptive_F1 --gpu 1"
+    # CartPole experiments with 90% dataset size (GPU 0)
+    "python -u main.py --dataset cartpole --method SGD --dataset-size 90 --gpu 0"
+    "python -u main.py --dataset cartpole --method simple_ga_fixed_CE --dataset-size 90 --gpu 0"
+    "python -u main.py --dataset cartpole --method simple_ga_fixed_F1 --dataset-size 90 --gpu 0"
+    "python -u main.py --dataset cartpole --method simple_ga_adaptive_CE --dataset-size 90 --gpu 0"
+    "python -u main.py --dataset cartpole --method simple_ga_adaptive_F1 --dataset-size 90 --gpu 0"
+    "python -u main.py --dataset cartpole --method simple_es_fixed_CE --dataset-size 90 --gpu 0"
+    "python -u main.py --dataset cartpole --method simple_es_fixed_F1 --dataset-size 90 --gpu 0"
+    "python -u main.py --dataset cartpole --method simple_es_adaptive_CE --dataset-size 90 --gpu 0"
+    "python -u main.py --dataset cartpole --method simple_es_adaptive_F1 --dataset-size 90 --gpu 0"
+
+    # CartPole experiments with 30% dataset size (GPU 0)
+    "python -u main.py --dataset cartpole --method SGD --dataset-size 30 --gpu 0"
+    "python -u main.py --dataset cartpole --method simple_ga_fixed_CE --dataset-size 30 --gpu 0"
+    "python -u main.py --dataset cartpole --method simple_ga_fixed_F1 --dataset-size 30 --gpu 0"
+    "python -u main.py --dataset cartpole --method simple_ga_adaptive_CE --dataset-size 30 --gpu 0"
+    "python -u main.py --dataset cartpole --method simple_ga_adaptive_F1 --dataset-size 30 --gpu 0"
+    "python -u main.py --dataset cartpole --method simple_es_fixed_CE --dataset-size 30 --gpu 0"
+    "python -u main.py --dataset cartpole --method simple_es_fixed_F1 --dataset-size 30 --gpu 0"
+    "python -u main.py --dataset cartpole --method simple_es_adaptive_CE --dataset-size 30 --gpu 0"
+    "python -u main.py --dataset cartpole --method simple_es_adaptive_F1 --dataset-size 30 --gpu 0"
+
+    # CartPole experiments with 10% dataset size (GPU 0)
+    "python -u main.py --dataset cartpole --method SGD --dataset-size 10 --gpu 0"
+    "python -u main.py --dataset cartpole --method simple_ga_fixed_CE --dataset-size 10 --gpu 0"
+    "python -u main.py --dataset cartpole --method simple_ga_fixed_F1 --dataset-size 10 --gpu 0"
+    "python -u main.py --dataset cartpole --method simple_ga_adaptive_CE --dataset-size 10 --gpu 0"
+    "python -u main.py --dataset cartpole --method simple_ga_adaptive_F1 --dataset-size 10 --gpu 0"
+    "python -u main.py --dataset cartpole --method simple_es_fixed_CE --dataset-size 10 --gpu 0"
+    "python -u main.py --dataset cartpole --method simple_es_fixed_F1 --dataset-size 10 --gpu 0"
+    "python -u main.py --dataset cartpole --method simple_es_adaptive_CE --dataset-size 10 --gpu 0"
+    "python -u main.py --dataset cartpole --method simple_es_adaptive_F1 --dataset-size 10 --gpu 0"
+
+    # LunarLander experiments with 90% dataset size (GPU 1)
+    "python -u main.py --dataset lunarlander --method SGD --dataset-size 90 --gpu 1"
+    "python -u main.py --dataset lunarlander --method simple_ga_fixed_CE --dataset-size 90 --gpu 1"
+    "python -u main.py --dataset lunarlander --method simple_ga_fixed_F1 --dataset-size 90 --gpu 1"
+    "python -u main.py --dataset lunarlander --method simple_ga_adaptive_CE --dataset-size 90 --gpu 1"
+    "python -u main.py --dataset lunarlander --method simple_ga_adaptive_F1 --dataset-size 90 --gpu 1"
+    "python -u main.py --dataset lunarlander --method simple_es_fixed_CE --dataset-size 90 --gpu 1"
+    "python -u main.py --dataset lunarlander --method simple_es_fixed_F1 --dataset-size 90 --gpu 1"
+    "python -u main.py --dataset lunarlander --method simple_es_adaptive_CE --dataset-size 90 --gpu 1"
+    "python -u main.py --dataset lunarlander --method simple_es_adaptive_F1 --dataset-size 90 --gpu 1"
+
+    # LunarLander experiments with 30% dataset size (GPU 1)
+    "python -u main.py --dataset lunarlander --method SGD --dataset-size 30 --gpu 1"
+    "python -u main.py --dataset lunarlander --method simple_ga_fixed_CE --dataset-size 30 --gpu 1"
+    "python -u main.py --dataset lunarlander --method simple_ga_fixed_F1 --dataset-size 30 --gpu 1"
+    "python -u main.py --dataset lunarlander --method simple_ga_adaptive_CE --dataset-size 30 --gpu 1"
+    "python -u main.py --dataset lunarlander --method simple_ga_adaptive_F1 --dataset-size 30 --gpu 1"
+    "python -u main.py --dataset lunarlander --method simple_es_fixed_CE --dataset-size 30 --gpu 1"
+    "python -u main.py --dataset lunarlander --method simple_es_fixed_F1 --dataset-size 30 --gpu 1"
+    "python -u main.py --dataset lunarlander --method simple_es_adaptive_CE --dataset-size 30 --gpu 1"
+    "python -u main.py --dataset lunarlander --method simple_es_adaptive_F1 --dataset-size 30 --gpu 1"
+
+    # LunarLander experiments with 10% dataset size (GPU 1)
+    "python -u main.py --dataset lunarlander --method SGD --dataset-size 10 --gpu 1"
+    "python -u main.py --dataset lunarlander --method simple_ga_fixed_CE --dataset-size 10 --gpu 1"
+    "python -u main.py --dataset lunarlander --method simple_ga_fixed_F1 --dataset-size 10 --gpu 1"
+    "python -u main.py --dataset lunarlander --method simple_ga_adaptive_CE --dataset-size 10 --gpu 1"
+    "python -u main.py --dataset lunarlander --method simple_ga_adaptive_F1 --dataset-size 10 --gpu 1"
+    "python -u main.py --dataset lunarlander --method simple_es_fixed_CE --dataset-size 10 --gpu 1"
+    "python -u main.py --dataset lunarlander --method simple_es_fixed_F1 --dataset-size 10 --gpu 1"
+    "python -u main.py --dataset lunarlander --method simple_es_adaptive_CE --dataset-size 10 --gpu 1"
+    "python -u main.py --dataset lunarlander --method simple_es_adaptive_F1 --dataset-size 10 --gpu 1"
 )
 
-echo "Starting 18 tmux sessions..."
+echo "Starting 54 tmux sessions (9 methods × 3 dataset sizes × 2 datasets)..."
 
 # Loop through the commands and create a session for each
 for i in "${!commands[@]}"; do
@@ -38,8 +85,11 @@ for i in "${!commands[@]}"; do
     # Extract the method name (matches text after --method until the next space)
     METHOD=$(echo "$CMD" | sed -n 's/.*--method \([^ ]*\).*/\1/p')
 
+    # Extract the dataset size (matches text after --dataset-size until the next space)
+    DATASET_SIZE=$(echo "$CMD" | sed -n 's/.*--dataset-size \([^ ]*\).*/\1/p')
+
     # Construct the Session ID
-    SESSION_ID="${DATASET}_${METHOD}"
+    SESSION_ID="${DATASET}_${METHOD}_${DATASET_SIZE}pct"
 
     echo "Launching $SESSION_ID"
 

@@ -9,6 +9,7 @@ from typing import Annotated as An
 
 import filelock
 import matplotlib.pyplot as plt
+from matplotlib.lines import Line2D
 import numpy as np
 import torch
 import torch.nn as nn
@@ -51,6 +52,9 @@ class ExperimentConfig:
 
     batch_size: int = 32
     train_split: float = 0.9
+    dataset_size: int = (
+        90  # Percentage of dataset to use for training (90, 30, or 10)
+    )
     hidden_size: int = 50
     num_f1_samples: int = 10
     population_size: int = 50
@@ -117,98 +121,238 @@ def update_plot(dataset_name: str, interactive: bool = False) -> None:
         plt.ioff()
         fig, axes = plt.subplots(1, 3, figsize=(18, 6))
 
-    fig.suptitle(f"{dataset_name} - Real-time Results", fontsize=14)
+    # Parse method names to separate base method and dataset size
+    # E.g., "SGD_90pct" -> base_method="SGD", dataset_size=90
+    parsed_methods: dict[str, tuple[str, int]] = {}
+    for method_name in results.keys():
+        if "_" in method_name and method_name.endswith("pct"):
+            # Extract dataset size from suffix like "_90pct"
+            parts: list[str] = method_name.rsplit("_", 1)
+            base_method: str = parts[0]
+            dataset_size: int = int(parts[1].replace("pct", ""))
+            parsed_methods[method_name] = (base_method, dataset_size)
+        else:
+            # Legacy format without dataset size suffix
+            parsed_methods[method_name] = (method_name, 90)
 
-    # Create consistent color mapping for all methods
-    all_method_names: list[str] = sorted(results.keys())
+    # Create consistent color mapping for base methods (without dataset size)
+    unique_base_methods: list[str] = sorted(
+        set(base for base, _ in parsed_methods.values())
+    )
     color_map: dict[str, tuple] = {}
     colors_palette = plt.cm.tab10(np.linspace(0, 1, 10))
-    for idx, method_name in enumerate(all_method_names):
-        color_map[method_name] = colors_palette[idx % 10]
+    for idx, base_method in enumerate(unique_base_methods):
+        color_map[base_method] = colors_palette[idx % 10]
+
+    # Define line styles for dataset sizes
+    line_styles: dict[int, str] = {
+        90: "-",
+        30: "--",
+        10: ":",
+    }  # solid  # dashed  # dotted
 
     # Plot 1: Test CE Loss Curves (CE-optimizing methods only)
     ax1 = axes[0]
     ax1.clear()
+    ce_methods: set[str] = set()  # Track CE methods for legend
     for method_name, data in results.items():
+        base_method, dataset_size = parsed_methods[method_name]
         # Only show CE-optimizing methods (exclude F1-optimizing NE methods)
-        if "_F1" in method_name:
+        if "_F1" in base_method:
             continue
+        ce_methods.add(base_method)
         if "test_loss" in data and data["test_loss"]:
             # Plot test loss vs runtime % (test_loss is a list now)
             if isinstance(data["test_loss"], list):
-                runtime_pct: np.ndarray = np.linspace(
-                    0, 100, len(data["test_loss"])
-                )
+                # Downsample to exactly 100 points
+                original_data: np.ndarray = np.array(data["test_loss"])
+                if len(original_data) > 100:
+                    # Interpolate to get exactly 100 evenly-spaced points
+                    x_original: np.ndarray = np.linspace(
+                        0, 100, len(original_data)
+                    )
+                    x_new: np.ndarray = np.linspace(0, 100, 100)
+                    downsampled_data: np.ndarray = np.interp(
+                        x_new, x_original, original_data
+                    )
+                    runtime_pct: np.ndarray = x_new
+                else:
+                    runtime_pct: np.ndarray = np.linspace(
+                        0, 100, len(original_data)
+                    )
+                    downsampled_data: np.ndarray = original_data
+
                 ax1.plot(
                     runtime_pct,
-                    data["test_loss"],
-                    label=method_name,
-                    color=color_map[method_name],
+                    downsampled_data,
+                    color=color_map[base_method],
+                    linestyle=line_styles[dataset_size],
                     alpha=0.8,
+                    linewidth=2 if dataset_size == 90 else 1.5,
                 )
+
+    # Create custom legend with solid lines for all methods
+    legend_handles: list[Line2D] = [
+        Line2D([0], [0], color=color_map[method], linestyle="-", linewidth=2)
+        for method in sorted(ce_methods)
+    ]
+    ax1.legend(
+        handles=legend_handles,
+        labels=sorted(ce_methods),
+        loc="best",
+        fontsize=8,
+    )
     ax1.set_xlabel("Runtime %")
     ax1.set_ylabel("Cross-Entropy Loss")
-    ax1.set_title("CE Loss")
-    ax1.legend(loc="best", fontsize=8)
+    ax1.set_title("Cross-Entropy Loss")
     ax1.grid(True, alpha=0.3)
+    # Add line style explanation as text annotation (bottom left)
+    ax1.text(
+        0.02,
+        0.02,
+        "— 90%  - - 30%  ··· 10%",
+        transform=ax1.transAxes,
+        fontsize=8,
+        verticalalignment="bottom",
+        bbox=dict(boxstyle="round", facecolor="white", alpha=0.8),
+    )
 
     # Plot 2: Test Macro F1 Score Curves (all methods)
     ax2 = axes[1]
     ax2.clear()
+    all_methods: set[str] = set()  # Track all methods for legend
     for method_name, data in results.items():
+        base_method, dataset_size = parsed_methods[method_name]
+        all_methods.add(base_method)
         if "f1" in data and data["f1"]:
-            runtime_pct = np.linspace(0, 100, len(data["f1"]))
+            # Downsample to exactly 100 points
+            original_data: np.ndarray = np.array(data["f1"])
+            if len(original_data) > 100:
+                # Interpolate to get exactly 100 evenly-spaced points
+                x_original: np.ndarray = np.linspace(
+                    0, 100, len(original_data)
+                )
+                x_new: np.ndarray = np.linspace(0, 100, 100)
+                downsampled_data: np.ndarray = np.interp(
+                    x_new, x_original, original_data
+                )
+                runtime_pct: np.ndarray = x_new
+            else:
+                runtime_pct: np.ndarray = np.linspace(
+                    0, 100, len(original_data)
+                )
+                downsampled_data: np.ndarray = original_data
+
             ax2.plot(
                 runtime_pct,
-                data["f1"],
-                label=method_name,
-                color=color_map[method_name],
+                downsampled_data,
+                color=color_map[base_method],
+                linestyle=line_styles[dataset_size],
                 alpha=0.8,
+                linewidth=2 if dataset_size == 90 else 1.5,
             )
+
+    # Create custom legend with solid lines for all methods
+    legend_handles: list[Line2D] = [
+        Line2D([0], [0], color=color_map[method], linestyle="-", linewidth=2)
+        for method in sorted(all_methods)
+    ]
+    ax2.legend(
+        handles=legend_handles,
+        labels=sorted(all_methods),
+        loc="best",
+        fontsize=8,
+    )
     ax2.set_xlabel("Runtime %")
     ax2.set_ylabel("Macro F1 Score")
     ax2.set_title("Macro F1 Score")
-    ax2.legend(loc="best", fontsize=8)
     ax2.grid(True, alpha=0.3)
+    # Add line style explanation as text annotation (bottom left)
+    ax2.text(
+        0.02,
+        0.02,
+        "— 90%  - - 30%  ··· 10%",
+        transform=ax2.transAxes,
+        fontsize=8,
+        verticalalignment="bottom",
+        bbox=dict(boxstyle="round", facecolor="white", alpha=0.8),
+    )
 
-    # Plot 3: Final Performance Comparison
+    # Plot 3: Final Performance Comparison (Grouped Bar Chart)
     ax3 = axes[2]
     ax3.clear()
-    methods: list[str] = list(results.keys())
-    final_f1s: list[float] = []
-    for m in methods:
-        if "f1" in results[m] and results[m]["f1"]:
-            final_f1s.append(results[m]["f1"][-1])
-        else:
-            final_f1s.append(0.0)
 
-    # Sort methods by F1 score (best to worst)
-    if methods and final_f1s:
-        sorted_pairs = sorted(
-            zip(methods, final_f1s), key=lambda x: x[1], reverse=True
+    # Organize data by base method and dataset size
+    method_data: dict[str, dict[int, float]] = {}
+    for method_name, data in results.items():
+        base_method, dataset_size = parsed_methods[method_name]
+        if "f1" in data and data["f1"]:
+            final_f1: float = data["f1"][-1]
+            if base_method not in method_data:
+                method_data[base_method] = {}
+            method_data[base_method][dataset_size] = final_f1
+
+    if method_data:
+        # Sort methods by best F1 score (max across all dataset sizes)
+        sorted_base_methods: list[str] = sorted(
+            method_data.keys(),
+            key=lambda m: max(method_data[m].values()),
+            reverse=True,
         )
-        methods = [p[0] for p in sorted_pairs]
-        final_f1s = [p[1] for p in sorted_pairs]
 
-    if methods and final_f1s:
-        # Use consistent colors from color_map
-        bar_colors = [color_map[m] for m in methods]
-        bars = ax3.bar(range(len(methods)), final_f1s, color=bar_colors)
-        ax3.set_xticks(range(len(methods)))
-        ax3.set_xticklabels(methods, rotation=45, ha="right", fontsize=8)
+        # Prepare data for grouped bar chart
+        dataset_sizes_list: list[int] = [90, 30, 10]
+        bar_width: float = 0.25
+        x_positions: np.ndarray = np.arange(len(sorted_base_methods))
+
+        # Alpha values for dataset sizes (darker to lighter)
+        size_alphas: dict[int, float] = {
+            90: 1.0,  # full opacity
+            30: 0.65,  # medium opacity
+            10: 0.35,  # light opacity
+        }
+
+        # Plot bars for each dataset size
+        for idx, ds in enumerate(dataset_sizes_list):
+            f1_values: list[float] = [
+                method_data[m].get(ds, 0.0) for m in sorted_base_methods
+            ]
+            # Use method colors with varying alpha
+            bar_colors: list[tuple] = [
+                (*color_map[m][:3], size_alphas[ds])
+                for m in sorted_base_methods
+            ]
+            bars = ax3.bar(
+                x_positions + idx * bar_width,
+                f1_values,
+                bar_width,
+                label=f"{ds}%",
+                color=bar_colors,
+                edgecolor="black",
+                linewidth=0.5,
+            )
+
+            # Add value labels on bars (only if value > 0)
+            for bar, val in zip(bars, f1_values):
+                if val > 0:
+                    ax3.text(
+                        bar.get_x() + bar.get_width() / 2,
+                        bar.get_height() + 0.005,
+                        f"{val:.2f}",
+                        ha="center",
+                        va="bottom",
+                        fontsize=6,
+                    )
+
+        # Set x-axis labels and formatting
+        ax3.set_xticks(x_positions + bar_width)
+        ax3.set_xticklabels(
+            sorted_base_methods, rotation=45, ha="right", fontsize=7
+        )
         ax3.set_ylabel("Final Macro F1 Score")
         ax3.set_title("Final Macro F1 Score")
+        ax3.legend(loc="best", fontsize=8, title="Dataset Size")
         ax3.grid(True, alpha=0.3, axis="y")
-
-        for bar, val in zip(bars, final_f1s):
-            ax3.text(
-                bar.get_x() + bar.get_width() / 2,
-                bar.get_height() + 0.01,
-                f"{val:.3f}",
-                ha="center",
-                va="bottom",
-                fontsize=8,
-            )
 
     plt.tight_layout()
     plot_path: Path = (
@@ -222,6 +366,47 @@ def update_plot(dataset_name: str, interactive: bool = False) -> None:
         plt.pause(0.01)  # Minimal pause for GUI update
     else:
         plt.close(fig)  # Close figure in non-interactive mode
+
+
+def subsample_train_data(
+    train_obs: Float[Tensor, "train_size input_size"],
+    train_act: Int[Tensor, " train_size"],
+    dataset_size_pct: int,
+    full_dataset_size: int,
+) -> tuple[
+    Float[Tensor, "subset_size input_size"],
+    Int[Tensor, " subset_size"],
+]:
+    """Subsample training data to specified percentage of full dataset.
+
+    Args:
+        train_obs: Training observations (90% of full dataset)
+        train_act: Training actions (90% of full dataset)
+        dataset_size_pct: Desired percentage of full dataset (90, 30, or 10)
+        full_dataset_size: Size of the full dataset before any splits
+
+    Returns:
+        Subsampled training observations and actions
+    """
+    if dataset_size_pct == 90:
+        # No subsampling needed, return full train set
+        return train_obs, train_act
+
+    # Calculate how many samples we need
+    # dataset_size_pct is % of full dataset, train_obs is 90% of full dataset
+    # So we need (dataset_size_pct / 90.0) of train_obs
+    target_size: int = int((dataset_size_pct / 100.0) * full_dataset_size)
+
+    # Subsample using the first target_size samples (data is already shuffled)
+    subset_obs: Float[Tensor, "subset_size input_size"] = train_obs[
+        :target_size
+    ]
+    subset_act: Int[Tensor, " subset_size"] = train_act[:target_size]
+
+    print(
+        f"  Subsampled train set from {train_obs.shape[0]} to {subset_obs.shape[0]} samples ({dataset_size_pct}% of full dataset)"
+    )
+    return subset_obs, subset_act
 
 
 def load_cartpole_data() -> tuple[
@@ -1083,8 +1268,11 @@ def run_single_method(
     config: ExperimentConfig,
 ) -> None:
     """Run a single optimization method."""
+    # Append dataset size to method name for identification
+    method_name_with_size: str = f"{method_name}_{config.dataset_size}pct"
+
     print(f"\n{'='*60}")
-    print(f"Running {method_name} for {dataset_name}")
+    print(f"Running {method_name_with_size} for {dataset_name}")
     print(f"{'='*60}")
     print(f"Train size: {train_obs.shape[0]}, Test size: {test_obs.shape[0]}")
     print(f"Input size: {input_size}, Output size: {output_size}")
@@ -1099,7 +1287,7 @@ def run_single_method(
             output_size,
             config,
             dataset_name,
-            method_name,
+            method_name_with_size,
         )
     else:
         train_neuroevolution(
@@ -1111,7 +1299,7 @@ def run_single_method(
             output_size,
             config,
             dataset_name,
-            method_name,
+            method_name_with_size,
             method_config["algorithm"],
             method_config["adaptive_sigma"],
             method_config["fitness_type"],
@@ -1156,6 +1344,13 @@ def main() -> None:
         type=int,
         default=0,
         help="GPU index to use (default: 0)",
+    )
+    parser.add_argument(
+        "--dataset-size",
+        type=int,
+        choices=[90, 30, 10],
+        default=90,
+        help="Percentage of dataset to use for training (default: 90)",
     )
 
     args = parser.parse_args()
@@ -1204,11 +1399,14 @@ def main() -> None:
         print("Use --list-methods to see available options")
         return
 
-    config: ExperimentConfig = ExperimentConfig(seed=args.seed)
+    config: ExperimentConfig = ExperimentConfig(
+        seed=args.seed, dataset_size=args.dataset_size
+    )
 
     # Set random seeds for reproducibility
     set_random_seeds(config.seed)
     print(f"Random seed: {config.seed}")
+    print(f"Dataset size: {config.dataset_size}% of full dataset")
 
     # Load data
     print(f"Loading {dataset_name} dataset...")
@@ -1216,6 +1414,14 @@ def main() -> None:
         train_obs, train_act, test_obs, test_act = load_cartpole_data()
     else:
         train_obs, train_act, test_obs, test_act = load_lunarlander_data()
+
+    # Store full dataset size before subsampling
+    full_dataset_size: int = train_obs.shape[0] + test_obs.shape[0]
+
+    # Subsample training data if needed
+    train_obs, train_act = subsample_train_data(
+        train_obs, train_act, config.dataset_size, full_dataset_size
+    )
 
     # Run single method
     run_single_method(

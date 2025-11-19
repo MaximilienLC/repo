@@ -524,8 +524,8 @@ def plot_results(results):
     axes[1, 1].legend(fontsize=11)
 
     plt.tight_layout()
-    plt.savefig("dl_vs_ga_scaling_v2.png", dpi=300, bbox_inches="tight")
-    print("\nPlot saved as 'dl_vs_ga_scaling_v2.png'")
+    plt.savefig("main.png", dpi=300, bbox_inches="tight")
+    print("\nPlot saved as 'main.png'")
 
 
 if __name__ == "__main__":

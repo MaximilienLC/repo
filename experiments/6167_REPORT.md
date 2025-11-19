@@ -8,9 +8,8 @@
       - [Network setup](#network-setup)
       - [Methods](#methods)
       - [Evaluation Metrics](#evaluation-metrics)
-      - [Results](#results)
-      - [Analysis](#analysis)
       - [Plots](#plots)
+      - [Analysis](#analysis)
       - [Issues](#issues)
     - [Experiment 2: Comparing methods more fairly](#experiment-2-comparing-methods-more-fairly)
       - [Data](#data-1)
@@ -19,11 +18,10 @@
       - [Neuroevolution algorithms](#neuroevolution-algorithms)
       - [Optimization](#optimization)
       - [Plots](#plots-1)
-      - [Hypothesis \& Results](#hypothesis--results)
-        - [Performance gap between SGD \& NE Methods](#performance-gap-between-sgd--ne-methods)
-        - [Remaining differences in compute use](#remaining-differences-in-compute-use)
-  - [2. Modeling continual behaviour](#2-modeling-continual-behaviour)
-      - [](#)
+      - [Results](#results)
+  - [2. Modeling continual human behaviour](#2-modeling-continual-human-behaviour)
+      - [Experiment 3: On the Value of Giving Continual Learning information](#experiment-3-on-the-value-of-giving-continual-learning-information)
+      - [Experiment 4:](#experiment-4)
 
 # Overview
 
@@ -31,7 +29,7 @@
 
 Deep Learning methods have pretty much yielded the entirety modern progress in AI. However, we hypothesize that several of its properties (e.g., differentiability constraint, data hyperdependency, data hunger, lack of causal abstraction, overparameterization bias & representation entanglement) make it, standalone, a sub-optimal choice for various tasks. All computational methods have strengths and weaknesses and we believe there is unexplored value to be found in mixing them.
 
-For instance, we believe Deep Learning-only methods to be sub-optimal for human behaviour cloning, which we focus on in this project.
+For instance, we believe Deep Learning-only methods to be sub-optimal for human behaviour cloning (due to its computational complexity), which we focus on in this project.
 
 ## Neuroevolution
 
@@ -50,6 +48,8 @@ Given that Neuroevolution is known not to scale well to information-rich domains
 We propose to begin our experiments with the task of `modeling state-action pair` datasets created from pre-trained Reinforcement Learning policies available on HuggingFace. The purpose here is to simply get a first feel of how the methods behave.
 
 ### Experiment 1: Scaling Law Analysis - Dataset Size vs Performance
+
+`@experiments/1_dl_vs_ga_scaling_dataset_size_flops/main.py`
 
 #### Data
 
@@ -88,23 +88,15 @@ Both methods optimize a 2-layer MLP:
 2. **Episode Return**: Average cumulative reward over 50 evaluation episodes in CartPole-v1 environment (max possible: 500)
 3. **FLOPs**: Total floating-point operations (forward + backward passes for DL; forward passes for GA fitness evaluations)
 
-#### Results
+#### Plots
 
-**Deep Learning Saturation:**
-- 100 samples: 82.08% match, 67.60 return, 2.13e+08 FLOPs
-- 300 samples: 82.92% match, 288.62 return, 6.39e+08 FLOPs
-- 1000 samples: 95.18% match, 500.00 return, 2.13e+09 FLOPs ← Near saturation
-- 3000 samples: 98.50% match, 500.00 return, 6.39e+09 FLOPs ← Strong saturation
-- 10000 samples: 99.28% match, 500.00 return, 2.13e+10 FLOPs ← Nearly perfect
-- 30000 samples: 99.14% match, 500.00 return, 6.39e+10 FLOPs
+Four-panel comparison showing:
+1. **Top-left**: Action Match Rate vs Dataset Size - DL rapidly approaches perfect performance while GA plateaus
+2. **Top-right**: Episode Return vs Dataset Size - DL achieves maximum return (500) while GA remains inconsistent
+3. **Bottom-left**: Action Match Rate vs FLOPs - DL achieves better performance with fewer compute resources
+4. **Bottom-right**: Episode Return vs FLOPs - Compute efficiency advantage of DL is clear
 
-**Genetic Algorithm Performance:**
-- 100 samples: 82.16% match, 103.88 return, 4.78e+09 FLOPs
-- 300 samples: 78.92% match, 101.82 return, 1.44e+10 FLOPs
-- 1000 samples: 82.10% match, 46.04 return, 4.78e+10 FLOPs
-- 3000 samples: 83.92% match, 44.64 return, 1.44e+11 FLOPs
-- 10000 samples: 82.98% match, 293.14 return, 4.78e+11 FLOPs
-- 30000 samples: 84.36% match, 190.08 return, 1.44e+12 FLOPs ← Plateaued at ~84%
+![Scaling Law Analysis Results](1_dl_vs_ga_scaling_dataset_size_flops/main.png)
 
 #### Analysis
 
@@ -119,36 +111,15 @@ Both methods optimize a 2-layer MLP:
 - Despite using 22x more compute, GA achieves significantly worse performance
 - DL is both more compute-efficient and more capable of reaching saturation
 
-**3. Why GA Fails to Saturate**
-- **Fitness-only feedback is too coarse**: GA receives only scalar fitness (match rate) per evaluation with no gradient information to guide parameter adjustments
-- **Random mutations insufficient near optima**: Must rely on random mutations to improve, which becomes highly inefficient for fine-tuning
-- **Population-based search inefficient for smooth landscapes**: CartPole behavior cloning has a relatively smooth loss landscape where gradient descent excels
-- **Fixed mutation rate suboptimal**: Constant mutation rate (0.01) may be too large for fine-tuning near the optimum
-
-**4. Hypothesis Reversal**
-This experiment contradicts our initial hypothesis that "DL methods are less capable of saturating metrics than GAs in behavior cloning." Instead, we find:
-- The differentiability constraint of DL is **beneficial** for this task
-- Gradient information provides richer signal than fitness-based selection
-- Backpropagation efficiently propagates information throughout the network
-- GA's advantages (exploration, function space flexibility) don't materialize when the loss landscape is smooth and a simple MLP architecture suffices
-
-#### Plots
-
-Four-panel comparison showing:
-1. **Top-left**: Action Match Rate vs Dataset Size - DL rapidly approaches perfect performance while GA plateaus
-2. **Top-right**: Episode Return vs Dataset Size - DL achieves maximum return (500) while GA remains inconsistent
-3. **Bottom-left**: Action Match Rate vs FLOPs - DL achieves better performance with fewer compute resources
-4. **Bottom-right**: Episode Return vs FLOPs - Compute efficiency advantage of DL is clear
-
-![Scaling Law Analysis Results](1_dl_vs_ga_scaling_dataset_size_flops/main.png)
-
 #### Issues
 
-This experiment was vibe-coded and thus has several flaws. The biggest is that GAs, every generation calculate over the whole training set in one-go, no mini-batches. This means that GAs had 100 update steps while DL had 150 x dataset_size / 64 updates.
+This experiment was vibe-coded with very little oversight and thus has several flaws. The biggest is that GAs, every generation, calculate over the whole training set in one-go, no mini-batches. This means that GAs had 100 update steps while DL had 150 x dataset_size / 64 updates.
 
 Rather than attempt to address each of these issues, we propose to learn from it heading into experiment 2.
 
 ### Experiment 2: Comparing methods more fairly
+
+`@experiments/2_dl_vs_ga_es/main.py`
 
 Heading into experiment 2, we propose to more fairly calibrate both class of methods. We make the following changes:
 - We make EAs optimize over mini-batches of the same size as DL methods.
@@ -165,15 +136,15 @@ We use two datasets derived from PPO policies:
 * Input space: 4 observations for `CartPole`, 8 for `LunarLander`
 * Output space: Both datasets' action space is discrete. `CartPole`'s possible actions are 0 and 1, `LunarLander`'s are 0,1,2,3
 * Size: 500k for `CartPole`, 384k for `LunarLander`
-* Processing: We shuffle the dataset, and start by training on 90% of it and test on the remaining 10%. We use batches of size 32.
+* Processing: We shuffle the dataset, and train on 90%,30% and 10% of it and test on the remaining 10%. We use batches of size 32.
 
 #### Network setup
 
-We begin with all methods optimizing over a double layer-MLP with hidden layer of size 50 and `tanh` activations. In the output layer, we set one neuron per possible action. Raw logits are converted into a probability distribution with a standard softmax.
+We set all methods to now optimize over a MLP with dimensions [input, 50, output] with `tanh` activations on the hidden layer. Output selection remains the same as experiment 1.
 
 #### Optimization/Evaluation functions
 
-We optimize, for both Neuroevolution and Deep Learning, over the `cross entropy`. In order to quantify behaviour cloning perfection, comparing both methods' `macro F1 score` appears more pertinent. We thus use the `macro F1 score` as an evaluation metric.
+We optimize, once again, for both Neuroevolution and Deep Learning, over the `cross entropy`. In order to quantify behaviour cloning perfection, comparing both methods' `macro F1 score` appears more pertinent. We thus use the `macro F1 score` as an evaluation metric.
 
 Given that Neuroevolution can use the `macro F1 score` as a fitness score, we propose to (separately) also have it optimize over it.
 
@@ -222,38 +193,46 @@ We generate the following plots for each dataset:
 ![Plot 2](2_dl_vs_ga_es/cartpole_v1.png)
 ![Plot 2](2_dl_vs_ga_es/lunarlander_v2.png)
 
-#### Hypothesis & Results
+#### Results
 
-##### Performance gap between SGD & NE Methods
+Optimizing F1 didn't quite work, might be both too uniformative and noisy (only 10 trials)
+N/A
 
-All NE methods underperform
-Regardless of the NE method used,
+## 2. Modeling continual human behaviour
 
-##### Remaining differences in compute use
-
-- pop size
-- resource utilization
-
-## 2. Modeling continual behaviour
-
-Human behaviour is not fixed. Not a list of frozen weights we can load and rollout hundreds of thousands of time
+Human behaviour is not fixed. Compared to the behaviour we have been trying to imitate thus far, it is not a list of frozen weights we can load and rollout hundreds of thousands of time.
 
 In the second section of this project, we propose to work on modeling the continual behaviour of human subjects.
 
-We asked 3 subjects to perform 4 different virtual tasks/games over the course of several days and collected their data through a script we developed.
+We asked 3 subjects to perform 4 different virtual tasks/games over the course of several days and collected their data through `@data/collect.py`.
 
 The tasks were:
-- `Acrobot`: Swing a fixed two-link chain left/right to reach a
-- `CartPole`: Move a cart left/right to prevent a pole from falling
-- `MountainCar`: Roll a car left/right up/down a hill to reach a flag on the right
-- `LunarLander`: Rocket boost down/left/right to land a lunar lander within a flagged region
+- `Acrobot`: Swing a fixed two-link chain left/right to reach a certain height.
+- `CartPole`: Move a cart left/right to prevent a pole attached to it from falling over.
+- `MountainCar`: Roll a car left/right up/down a hill to reach a flag on the right hill.
+- `LunarLander`: Rocket boost down/left/right to land a lunar lander within a flagged region.
 
 We gave no instruction nor information about what the games are about to the participants. We asked the participants simply to play, whether or not they wanted to win or optimize their score was up to them.
 
 In the data, we collect, for every episode the exact start time of the episode.
 
-####
+We create a simple categorization of the data:
+If an episode starts at least 30 minutes after the previous episode, a new `session` has begun.
+Within one `session` can be multiple episodes which we then call `runs` (e.g. `episode` 48 could be `session` 10 `run` 3).
 
-Our modeling task is: for each
+We give that information to the networks by adding two input values (one for `session`, one for `run`).
+We set the remap the `session` values from `1,2,3,...,n` to `-1,...,1`, with equal distance value between `sessions`.
+For each `session` we set remap its `run` values in the same manner.
+Ex: 5 sessions, session 1 has 1 runs, session 2 has 3 runs, session 3 has 5 runs -> session values = [-1.0, -0.5, 0.0, 0.5, 1.0], session 1 run values = [0.0], session 2 run values = [-1.0, 0.0, 1.0], session 1 run values = [-1.0, -0.5, 0.0, 0.5, 1.0].
 
-We take episode 1, set its value to -1 take the last episode, set its value to 1 and everything else between -1 and 1.
+#### Experiment 3: On the Value of Giving Continual Learning information
+
+`@experiments/3_cl_info_dl_vs_ga/main.py`
+
+We make the following changes from experiment 2:
+- We drop `ES` given its underperformance relative to `GA`.
+-
+
+#### Experiment 4:
+
+We turn all networks to recurrent networks while maintaining the `[input, 50, output]`
