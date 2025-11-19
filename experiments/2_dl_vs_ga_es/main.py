@@ -10,6 +10,7 @@ from typing import Annotated as An
 import filelock
 import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
+from matplotlib.ticker import LogLocator, LogFormatter
 import numpy as np
 import torch
 import torch.nn as nn
@@ -19,6 +20,60 @@ from jaxtyping import Float, Int
 from sklearn.metrics import f1_score
 from torch import Tensor
 from torch.utils.data import DataLoader, TensorDataset
+
+
+def format_dataset_size(size: int) -> str:
+    """Format dataset size as scientific notation (e.g., 100000 -> '1e5')."""
+    if size >= 1000:
+        exponent: int = len(str(size)) - 1
+        mantissa: float = size / (10**exponent)
+        if mantissa == 1.0:
+            return f"1e{exponent}"
+        else:
+            return f"{mantissa:.1f}e{exponent}"
+    else:
+        # For sizes < 1000, just use the number directly
+        return str(size)
+
+
+def format_method_name(method_name: str) -> str:
+    """Convert internal method name to display name.
+
+    Examples:
+        'simple_es_adaptive_CE' -> 'Adaptive ES'
+        'simple_ga_fixed_F1' -> 'Fixed GA (F1)'
+        'SGD' -> 'SGD'
+    """
+    if method_name == "SGD":
+        return "SGD"
+
+    # Parse method name: [simple_ga/simple_es]_[fixed/adaptive]_[CE/F1]
+    parts: list[str] = method_name.split("_")
+    if len(parts) < 3:
+        return method_name
+
+    algorithm: str = parts[0] + "_" + parts[1]  # simple_ga or simple_es
+    sigma_mode: str = parts[2]  # fixed or adaptive
+    fitness_type: str = parts[3] if len(parts) > 3 else ""  # CE or F1
+
+    # Map algorithm
+    algo_display: str = ""
+    if algorithm == "simple_ga":
+        algo_display = "GA"
+    elif algorithm == "simple_es":
+        algo_display = "ES"
+
+    # Map sigma mode
+    sigma_display: str = sigma_mode.capitalize()  # Fixed or Adaptive
+
+    # Construct display name
+    display_name: str = f"{sigma_display} {algo_display}"
+
+    # Add fitness type if it's F1
+    if fitness_type == "F1":
+        display_name += " (F1)"
+
+    return display_name
 
 
 def set_random_seeds(seed: int = 42) -> None:
@@ -53,7 +108,7 @@ class ExperimentConfig:
     batch_size: int = 32
     train_split: float = 0.9
     dataset_size: int = (
-        90  # Percentage of dataset to use for training (90, 30, or 10)
+        100000  # Absolute number of training samples (100000, 10000, 1000, or 100)
     )
     hidden_size: int = 50
     num_f1_samples: int = 10
@@ -122,18 +177,38 @@ def update_plot(dataset_name: str, interactive: bool = False) -> None:
         fig, axes = plt.subplots(1, 3, figsize=(18, 6))
 
     # Parse method names to separate base method and dataset size
-    # E.g., "SGD_90pct" -> base_method="SGD", dataset_size=90
+    # E.g., "SGD_1e5" -> base_method="SGD", dataset_size=100000
     parsed_methods: dict[str, tuple[str, int]] = {}
     for method_name in results.keys():
-        if "_" in method_name and method_name.endswith("pct"):
-            # Extract dataset size from suffix like "_90pct"
+        if "_" in method_name:
+            # Extract dataset size from suffix like "_1e5", "_100", or "_90pct"
             parts: list[str] = method_name.rsplit("_", 1)
+            suffix: str = parts[1]
             base_method: str = parts[0]
-            dataset_size: int = int(parts[1].replace("pct", ""))
-            parsed_methods[method_name] = (base_method, dataset_size)
+
+            # Check if suffix is a scientific notation (e.g., "1e5")
+            if "e" in suffix:
+                try:
+                    dataset_size: int = int(float(suffix))
+                    parsed_methods[method_name] = (base_method, dataset_size)
+                except ValueError:
+                    # Not a valid scientific notation, treat as legacy format
+                    parsed_methods[method_name] = (method_name, 100000)
+            elif suffix.endswith("pct"):
+                # Legacy format "_90pct"
+                dataset_size: int = int(suffix.replace("pct", ""))
+                parsed_methods[method_name] = (base_method, dataset_size)
+            elif suffix.isdigit():
+                # Plain numeric suffix like "_100", "_1000", "_10000", "_100000"
+                dataset_size: int = int(suffix)
+                parsed_methods[method_name] = (base_method, dataset_size)
+            else:
+                # Unknown format - might be part of method name (e.g., "simple_ga")
+                # Don't split, treat whole thing as method name
+                parsed_methods[method_name] = (method_name, 100000)
         else:
-            # Legacy format without dataset size suffix
-            parsed_methods[method_name] = (method_name, 90)
+            # No underscore - treat as method name without dataset size suffix
+            parsed_methods[method_name] = (method_name, 100000)
 
     # Create consistent color mapping for base methods (without dataset size)
     unique_base_methods: list[str] = sorted(
@@ -146,10 +221,11 @@ def update_plot(dataset_name: str, interactive: bool = False) -> None:
 
     # Define line styles for dataset sizes
     line_styles: dict[int, str] = {
-        90: "-",
-        30: "--",
-        10: ":",
-    }  # solid  # dashed  # dotted
+        100000: "-",  # solid
+        10000: "--",  # dashed
+        1000: "-.",  # dot-dashed
+        100: ":",  # dotted
+    }
 
     # Plot 1: Test CE Loss Curves (CE-optimizing methods only)
     ax1 = axes[0]
@@ -188,29 +264,36 @@ def update_plot(dataset_name: str, interactive: bool = False) -> None:
                     color=color_map[base_method],
                     linestyle=line_styles[dataset_size],
                     alpha=0.8,
-                    linewidth=2 if dataset_size == 90 else 1.5,
+                    linewidth=2 if dataset_size == 100000 else 1.5,
                 )
 
-    # Create custom legend with solid lines for all methods
+    # Create custom legend with solid lines for all methods (with display names)
+    sorted_ce_methods: list[str] = sorted(ce_methods)
     legend_handles: list[Line2D] = [
         Line2D([0], [0], color=color_map[method], linestyle="-", linewidth=2)
-        for method in sorted(ce_methods)
+        for method in sorted_ce_methods
+    ]
+    legend_labels: list[str] = [
+        format_method_name(method) for method in sorted_ce_methods
     ]
     ax1.legend(
         handles=legend_handles,
-        labels=sorted(ce_methods),
+        labels=legend_labels,
         loc="best",
         fontsize=8,
     )
     ax1.set_xlabel("Runtime %")
     ax1.set_ylabel("Cross-Entropy Loss")
     ax1.set_title("Cross-Entropy Loss")
+    ax1.set_yscale("log")
+    ax1.yaxis.set_major_locator(LogLocator(base=10.0, subs=[1.0]))
+    ax1.yaxis.set_major_formatter(LogFormatter(base=10.0))
     ax1.grid(True, alpha=0.3)
     # Add line style explanation as text annotation (bottom left)
     ax1.text(
         0.02,
         0.02,
-        "— 90%  - - 30%  ··· 10%",
+        "— 1e5  - - 1e4  -· 1e3  ··· 1e2",
         transform=ax1.transAxes,
         fontsize=8,
         verticalalignment="bottom",
@@ -249,29 +332,36 @@ def update_plot(dataset_name: str, interactive: bool = False) -> None:
                 color=color_map[base_method],
                 linestyle=line_styles[dataset_size],
                 alpha=0.8,
-                linewidth=2 if dataset_size == 90 else 1.5,
+                linewidth=2 if dataset_size == 100000 else 1.5,
             )
 
-    # Create custom legend with solid lines for all methods
+    # Create custom legend with solid lines for all methods (with display names)
+    sorted_all_methods: list[str] = sorted(all_methods)
     legend_handles: list[Line2D] = [
         Line2D([0], [0], color=color_map[method], linestyle="-", linewidth=2)
-        for method in sorted(all_methods)
+        for method in sorted_all_methods
+    ]
+    legend_labels: list[str] = [
+        format_method_name(method) for method in sorted_all_methods
     ]
     ax2.legend(
         handles=legend_handles,
-        labels=sorted(all_methods),
+        labels=legend_labels,
         loc="best",
         fontsize=8,
     )
     ax2.set_xlabel("Runtime %")
     ax2.set_ylabel("Macro F1 Score")
     ax2.set_title("Macro F1 Score")
+    ax2.set_yscale("log")
+    ax2.yaxis.set_major_locator(LogLocator(base=10.0, subs=[1.0]))
+    ax2.yaxis.set_major_formatter(LogFormatter(base=10.0))
     ax2.grid(True, alpha=0.3)
     # Add line style explanation as text annotation (bottom left)
     ax2.text(
         0.02,
         0.02,
-        "— 90%  - - 30%  ··· 10%",
+        "— 1e5  - - 1e4  -· 1e3  ··· 1e2",
         transform=ax2.transAxes,
         fontsize=8,
         verticalalignment="bottom",
@@ -288,28 +378,30 @@ def update_plot(dataset_name: str, interactive: bool = False) -> None:
         base_method, dataset_size = parsed_methods[method_name]
         if "f1" in data and data["f1"]:
             final_f1: float = data["f1"][-1]
+            final_error: float = 1.0 - final_f1  # Compute error instead of F1
             if base_method not in method_data:
                 method_data[base_method] = {}
-            method_data[base_method][dataset_size] = final_f1
+            method_data[base_method][dataset_size] = final_error
 
     if method_data:
-        # Sort methods by best F1 score (max across all dataset sizes)
+        # Sort methods by best error (min across all dataset sizes)
         sorted_base_methods: list[str] = sorted(
             method_data.keys(),
-            key=lambda m: max(method_data[m].values()),
-            reverse=True,
+            key=lambda m: min(method_data[m].values()),
+            reverse=False,
         )
 
         # Prepare data for grouped bar chart
-        dataset_sizes_list: list[int] = [90, 30, 10]
-        bar_width: float = 0.25
+        dataset_sizes_list: list[int] = [100000, 10000, 1000, 100]
+        bar_width: float = 0.2
         x_positions: np.ndarray = np.arange(len(sorted_base_methods))
 
         # Alpha values for dataset sizes (darker to lighter)
         size_alphas: dict[int, float] = {
-            90: 1.0,  # full opacity
-            30: 0.65,  # medium opacity
-            10: 0.35,  # light opacity
+            100000: 1.0,  # full opacity
+            10000: 0.75,  # high opacity
+            1000: 0.5,  # medium opacity
+            100: 0.35,  # light opacity
         }
 
         # Plot bars for each dataset size
@@ -335,23 +427,46 @@ def update_plot(dataset_name: str, interactive: bool = False) -> None:
             # Add value labels on bars (only if value > 0)
             for bar, val in zip(bars, f1_values):
                 if val > 0:
+                    # Format value in scientific notation (e.g., 0.22 -> 1.35e-2)
+                    if val >= 0.01:
+                        exponent: int = int(np.floor(np.log10(val)))
+                        mantissa: float = val / (10**exponent)
+                        label: str = f"{mantissa:.2f}e{exponent}"
+                    else:
+                        label: str = f"{val:.2e}"
                     ax3.text(
                         bar.get_x() + bar.get_width() / 2,
-                        bar.get_height() + 0.005,
-                        f"{val:.2f}",
+                        bar.get_height() * 1.02,
+                        label,
                         ha="center",
                         va="bottom",
                         fontsize=6,
+                        rotation=90,
                     )
 
-        # Set x-axis labels and formatting
-        ax3.set_xticks(x_positions + bar_width)
-        ax3.set_xticklabels(
-            sorted_base_methods, rotation=45, ha="right", fontsize=7
+        # Set x-axis labels and formatting (with display names)
+        ax3.set_xticks(x_positions + bar_width * 1.5)
+        display_names: list[str] = [
+            format_method_name(m) for m in sorted_base_methods
+        ]
+        ax3.set_xticklabels(display_names, rotation=45, ha="right", fontsize=7)
+        ax3.set_ylabel("Final Macro F1 Error")
+        ax3.set_title("Final Macro F1 Error")
+        ax3.set_yscale("log")
+        ax3.yaxis.set_major_locator(LogLocator(base=10.0, subs=[1.0]))
+        ax3.yaxis.set_major_formatter(
+            LogFormatter(base=10.0, labelOnlyBase=False)
         )
-        ax3.set_ylabel("Final Macro F1 Score")
-        ax3.set_title("Final Macro F1 Score")
-        ax3.legend(loc="best", fontsize=8, title="Dataset Size")
+        # Update legend to show dataset sizes in scientific notation
+        legend_labels_bar: list[str] = [
+            format_dataset_size(ds) for ds in dataset_sizes_list
+        ]
+        ax3.legend(
+            loc="best",
+            fontsize=8,
+            title="Dataset Size",
+            labels=legend_labels_bar,
+        )
         ax3.grid(True, alpha=0.3, axis="y")
 
     plt.tight_layout()
@@ -371,40 +486,41 @@ def update_plot(dataset_name: str, interactive: bool = False) -> None:
 def subsample_train_data(
     train_obs: Float[Tensor, "train_size input_size"],
     train_act: Int[Tensor, " train_size"],
-    dataset_size_pct: int,
+    dataset_size_abs: int,
     full_dataset_size: int,
 ) -> tuple[
     Float[Tensor, "subset_size input_size"],
     Int[Tensor, " subset_size"],
 ]:
-    """Subsample training data to specified percentage of full dataset.
+    """Subsample training data to specified absolute number of samples.
 
     Args:
         train_obs: Training observations (90% of full dataset)
         train_act: Training actions (90% of full dataset)
-        dataset_size_pct: Desired percentage of full dataset (90, 30, or 10)
+        dataset_size_abs: Desired absolute number of training samples (100000, 10000, 1000, or 100)
         full_dataset_size: Size of the full dataset before any splits
 
     Returns:
         Subsampled training observations and actions
     """
-    if dataset_size_pct == 90:
-        # No subsampling needed, return full train set
+    # Get the actual available training samples
+    available_size: int = train_obs.shape[0]
+
+    # If requested size is greater than or equal to available, return full train set
+    if dataset_size_abs >= available_size:
+        print(
+            f"  Requested {dataset_size_abs} samples, using all available {available_size} training samples"
+        )
         return train_obs, train_act
 
-    # Calculate how many samples we need
-    # dataset_size_pct is % of full dataset, train_obs is 90% of full dataset
-    # So we need (dataset_size_pct / 90.0) of train_obs
-    target_size: int = int((dataset_size_pct / 100.0) * full_dataset_size)
-
-    # Subsample using the first target_size samples (data is already shuffled)
+    # Subsample using the first dataset_size_abs samples (data is already shuffled)
     subset_obs: Float[Tensor, "subset_size input_size"] = train_obs[
-        :target_size
+        :dataset_size_abs
     ]
-    subset_act: Int[Tensor, " subset_size"] = train_act[:target_size]
+    subset_act: Int[Tensor, " subset_size"] = train_act[:dataset_size_abs]
 
     print(
-        f"  Subsampled train set from {train_obs.shape[0]} to {subset_obs.shape[0]} samples ({dataset_size_pct}% of full dataset)"
+        f"  Subsampled train set from {available_size} to {subset_obs.shape[0]} samples"
     )
     return subset_obs, subset_act
 
@@ -1269,7 +1385,9 @@ def run_single_method(
 ) -> None:
     """Run a single optimization method."""
     # Append dataset size to method name for identification
-    method_name_with_size: str = f"{method_name}_{config.dataset_size}pct"
+    method_name_with_size: str = (
+        f"{method_name}_{format_dataset_size(config.dataset_size)}"
+    )
 
     print(f"\n{'='*60}")
     print(f"Running {method_name_with_size} for {dataset_name}")
@@ -1348,9 +1466,9 @@ def main() -> None:
     parser.add_argument(
         "--dataset-size",
         type=int,
-        choices=[90, 30, 10],
-        default=90,
-        help="Percentage of dataset to use for training (default: 90)",
+        choices=[100000, 10000, 1000, 100],
+        default=100000,
+        help="Absolute number of training samples to use (default: 100000)",
     )
 
     args = parser.parse_args()
@@ -1406,7 +1524,7 @@ def main() -> None:
     # Set random seeds for reproducibility
     set_random_seeds(config.seed)
     print(f"Random seed: {config.seed}")
-    print(f"Dataset size: {config.dataset_size}% of full dataset")
+    print(f"Dataset size: {config.dataset_size} training samples")
 
     # Load data
     print(f"Loading {dataset_name} dataset...")

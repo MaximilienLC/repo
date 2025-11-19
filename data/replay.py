@@ -2,7 +2,7 @@ import json
 import time
 import os
 import gymnasium as gym
-import pygame # Only needed if you want to access keys for config consistency, though not strictly needed for replay logic alone
+import pygame  # Only needed if you want to access keys for config consistency, though not strictly needed for replay logic alone
 
 # --- CONFIGURATION (Must match recorder) ---
 GAME_CONFIGS = {
@@ -10,26 +10,26 @@ GAME_CONFIGS = {
         "id": "CartPole-v1",
         "name": "CartPole",
         "filename": "data_cartpole.json",
-        "fps": 15
+        "fps": 15,
     },
     "2": {
         "id": "MountainCar-v0",
         "name": "MountainCar",
         "filename": "data_mountaincar.json",
-        "fps": 15
+        "fps": 15,
     },
     "3": {
         "id": "Acrobot-v1",
         "name": "Acrobot",
         "filename": "data_acrobot.json",
-        "fps": 15
+        "fps": 15,
     },
     "4": {
         "id": "LunarLander-v3",
         "name": "LunarLander",
         "filename": "data_lunarlander.json",
-        "fps": 20
-    }
+        "fps": 100,
+    },
 }
 
 # --- 1. User Selection ---
@@ -52,7 +52,9 @@ print(f"Loading file: {filename}")
 
 # --- 2. Load Data ---
 if not os.path.exists(filename):
-    print(f"Error: File '{filename}' not found. Have you recorded any episodes yet?")
+    print(
+        f"Error: File '{filename}' not found. Have you recorded any episodes yet?"
+    )
     exit()
 
 with open(filename, "r") as f:
@@ -97,8 +99,10 @@ for episode in data:
         time.sleep(frame_delay)
 
     # Pause after episode
-    user_input = input(f"Episode {episode_id} finished. [ENTER] for next, [q] to quit: ")
-    if user_input.lower() == 'q':
+    user_input = input(
+        f"Episode {episode_id} finished. [ENTER] for next, [q] to quit: "
+    )
+    if user_input.lower() == "q":
         break
 
 env.close()

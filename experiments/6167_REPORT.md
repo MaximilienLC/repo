@@ -22,6 +22,7 @@
   - [2. Modeling continual human behaviour](#2-modeling-continual-human-behaviour)
       - [Experiment 3: On the Value of Giving Continual Learning information](#experiment-3-on-the-value-of-giving-continual-learning-information)
       - [Experiment 4:](#experiment-4)
+      - [Experiment 5:](#experiment-5)
 
 # Overview
 
@@ -125,7 +126,7 @@ Heading into experiment 2, we propose to more fairly calibrate both class of met
 - We make EAs optimize over mini-batches of the same size as DL methods.
 - We propose to compare results based on total runtime (EA generations are much faster than DL optimization steps)
 - We GPU-proof the EAs: In experiment 1, agents in the population get evaluated on the GPU one by one in a loop. This time around we run batch matrix multiplications to allow the whole evaluation to run on the GPU.
-- We strip both EAs and GAs to their simplest (explained below).
+- We strip both EAs and GAs to their simplest forms (explained below).
 
 #### Data
 
@@ -235,4 +236,10 @@ We make the following changes from experiment 2:
 
 #### Experiment 4:
 
-We turn all networks to recurrent networks while maintaining the `[input, 50, output]`
+We turn all networks to recurrent networks while maintaining the `[input, 50, output]`.
+We also add networks of dynamic complexity.
+
+#### Experiment 5:
+
+We experiment with adverarial behaviour imitation.
+GAIL for SGD

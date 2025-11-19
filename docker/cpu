@@ -3,4 +3,4 @@ FROM ubuntu:24.04
 RUN apt update && apt install -y python3-pip swig && rm -rf /var/lib/apt/lists/*
 
 RUN python3 -m pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu --break-system-packages
-RUN python3 -m pip install --no-cache-dir numpy einops jaxtyping datasets scikit-learn matplotlib gymnasium[classic-control,box2d] --break-system-packages
+RUN python3 -m pip install --no-cache-dir numpy einops jaxtyping datasets scikit-learn matplotlib gymnasium[classic-control,box2d] beartype ordered_set --break-system-packages
