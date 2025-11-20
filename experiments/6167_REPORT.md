@@ -21,8 +21,6 @@
       - [Results](#results)
   - [2. Modeling continual human behaviour](#2-modeling-continual-human-behaviour)
       - [Experiment 3: On the Value of Giving Continual Learning information](#experiment-3-on-the-value-of-giving-continual-learning-information)
-      - [Experiment 4:](#experiment-4)
-      - [Experiment 5:](#experiment-5)
 
 # Overview
 
@@ -231,15 +229,6 @@ Ex: 5 sessions, session 1 has 1 runs, session 2 has 3 runs, session 3 has 5 runs
 `@experiments/3_cl_info_dl_vs_ga/main.py`
 
 We make the following changes from experiment 2:
-- We drop `ES` given its underperformance relative to `GA`.
--
-
-#### Experiment 4:
-
-We turn all networks to recurrent networks while maintaining the `[input, 50, output]`.
-We also add networks of dynamic complexity.
-
-#### Experiment 5:
-
-We experiment with adverarial behaviour imitation.
-GAIL for SGD
+- We drop `ES` given its underperformance relative to `GA`, only keep `adaptive GA CE & SGD`.
+- We run ablation experiment: with/without `session` and `run` information.
+- No scaling over dataset size: train on first 90% of data, test on last 10%
