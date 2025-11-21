@@ -45,11 +45,15 @@ def load_model_from_checkpoint(
         Loaded MLP model
     """
     # Load to CPU first to avoid CUDA issues, then move to device
-    checkpoint: dict = torch.load(checkpoint_path, weights_only=False, map_location="cpu")
+    checkpoint: dict = torch.load(
+        checkpoint_path, weights_only=False, map_location="cpu"
+    )
 
     if "model_state" in checkpoint:
         # Standard SGD checkpoint with single model
-        model: MLP = MLP(input_size, hidden_size, output_size).to(config.DEVICE)
+        model: MLP = MLP(input_size, hidden_size, output_size).to(
+            config.DEVICE
+        )
         # Load state dict (already on device via model.to(config.DEVICE))
         model.load_state_dict(checkpoint["model_state"])
         model.eval()
@@ -76,16 +80,24 @@ def load_model_from_checkpoint(
         # Evaluate to find best individual
         if test_obs is not None and test_act is not None:
             # Ensure test data is on correct device
-            test_obs_device: Float[Tensor, "test_size input_size"] = test_obs.to(config.DEVICE)
-            test_act_device: Int[Tensor, " test_size"] = test_act.to(config.DEVICE)
+            test_obs_device: Float[Tensor, "test_size input_size"] = (
+                test_obs.to(config.DEVICE)
+            )
+            test_act_device: Int[Tensor, " test_size"] = test_act.to(
+                config.DEVICE
+            )
             fitness: Float[Tensor, " pop_size"] = population.evaluate(
                 test_obs_device, test_act_device
             )
         else:
             # If no test data, assume population is sorted and take first
             # (This happens after selection in training)
-            print(f"    Warning: No test data provided, assuming index 0 is best")
-            fitness = torch.arange(pop_size, dtype=torch.float32, device=config.DEVICE)
+            print(
+                f"    Warning: No test data provided, assuming index 0 is best"
+            )
+            fitness = torch.arange(
+                pop_size, dtype=torch.float32, device=config.DEVICE
+            )
 
         # Extract best model
         model: MLP = population.create_best_mlp(fitness)
@@ -124,7 +136,9 @@ def run_episode(
         obs, _ = env.reset(seed=seed)
     else:
         obs, _ = env.reset()
-    obs_tensor: Float[Tensor, " obs_dim"] = torch.from_numpy(obs).float().to(config.DEVICE)
+    obs_tensor: Float[Tensor, " obs_dim"] = (
+        torch.from_numpy(obs).float().to(config.DEVICE)
+    )
 
     # Append CL features if provided
     use_cl_features: bool = norm_session is not None and norm_run is not None
@@ -210,7 +224,9 @@ def evaluate_model_returns(
 
         # Calculate percentage difference: (model - human) / human * 100
         if human_return != 0:
-            pct_diff: float = ((total_return - human_return) / abs(human_return)) * 100
+            pct_diff: float = (
+                (total_return - human_return) / abs(human_return)
+            ) * 100
         else:
             # If human got 0 return, use absolute difference
             pct_diff = total_return * 100
@@ -244,18 +260,18 @@ def evaluate_model_returns(
     }
 
 
-def load_human_returns(env_name: str, person: str = "max") -> dict:
+def load_human_returns(env_name: str, subject: str = "sub01") -> dict:
     """Load returns from human episode data.
 
     Args:
         env_name: Environment name
-        person: Person identifier (max, yann)
+        subject: Subject identifier (sub01, sub02)
 
     Returns:
         Dictionary with human episode statistics
     """
     env_config: dict = ENV_CONFIGS[env_name]
-    data_filename: str = get_data_file(env_name, person)
+    data_filename: str = get_data_file(env_name, subject)
     data_file: Path = DATA_DIR / data_filename
 
     with open(data_file, "r") as f:
@@ -289,12 +305,14 @@ def load_human_returns(env_name: str, person: str = "max") -> dict:
     }
 
 
-def load_human_episode_details(env_name: str, person: str = "max") -> list[dict]:
+def load_human_episode_details(
+    env_name: str, subject: str = "sub01"
+) -> list[dict]:
     """Load seed, return, and CL features for each test episode from metadata.
 
     Args:
         env_name: Environment name
-        person: Person identifier (max, yann)
+        subject: Subject identifier (sub01, sub02)
 
     Returns:
         List of dicts with {"seed": int, "return": float, "length": int,
@@ -303,7 +321,7 @@ def load_human_episode_details(env_name: str, person: str = "max") -> list[dict]
     from .config import RESULTS_DIR
 
     # Load metadata file
-    metadata_path: Path = RESULTS_DIR / f"metadata_{env_name}_{person}.json"
+    metadata_path: Path = RESULTS_DIR / f"metadata_{env_name}_{subject}.json"
 
     if not metadata_path.exists():
         raise FileNotFoundError(
@@ -319,18 +337,22 @@ def load_human_episode_details(env_name: str, person: str = "max") -> list[dict]
     # Extract relevant fields for each test episode
     episode_details: list[dict] = []
     for ep_info in test_episode_info:
-        episode_details.append({
-            "seed": ep_info["seed"],
-            "return": ep_info["return"],
-            "length": ep_info["num_steps"],
-            "norm_session": ep_info["norm_session"],
-            "norm_run": ep_info["norm_run"],
-        })
+        episode_details.append(
+            {
+                "seed": ep_info["seed"],
+                "return": ep_info["return"],
+                "length": ep_info["num_steps"],
+                "norm_session": ep_info["norm_session"],
+                "norm_run": ep_info["norm_run"],
+            }
+        )
 
     return episode_details
 
 
-def compare_returns(human_stats: dict, model_stats: dict, method_name: str) -> dict:
+def compare_returns(
+    human_stats: dict, model_stats: dict, method_name: str
+) -> dict:
     """Compare human and model return statistics.
 
     Args:
@@ -395,7 +417,7 @@ def evaluate_all_methods(
     env_name: str,
     num_episodes: int = 100,
     render: bool = False,
-    person: str = "max",
+    subject: str = "sub01",
 ) -> dict:
     """Evaluate all optimized methods for an environment.
 
@@ -403,7 +425,7 @@ def evaluate_all_methods(
         env_name: Environment name
         num_episodes: Number of episodes to run per method
         render: Whether to render episodes
-        person: Person identifier (max, yann)
+        subject: Subject identifier (sub01, sub02)
 
     Returns:
         Dictionary with all evaluation results
@@ -415,20 +437,28 @@ def evaluate_all_methods(
     success_threshold: float = get_success_threshold(env_name)
 
     # Load human data
-    print(f"\nLoading {person}'s episode data for {env_name}...")
-    human_stats: dict = load_human_returns(env_name, person)
-    episode_details: list[dict] = load_human_episode_details(env_name, person)
-    print(f"  {person.capitalize()}'s episodes: {human_stats['num_episodes']}")
-    print(f"  {person.capitalize()}'s mean return: {human_stats['mean_return']:.2f} ± {human_stats['std_return']:.2f}")
-    print(f"  Will run {len(episode_details)} matched episodes with same seeds")
+    print(f"\nLoading {subject}'s episode data for {env_name}...")
+    human_stats: dict = load_human_returns(env_name, subject)
+    episode_details: list[dict] = load_human_episode_details(env_name, subject)
+    print(
+        f"  {subject.capitalize()}'s episodes: {human_stats['num_episodes']}"
+    )
+    print(
+        f"  {subject.capitalize()}'s mean return: {human_stats['mean_return']:.2f} ± {human_stats['std_return']:.2f}"
+    )
+    print(
+        f"  Will run {len(episode_details)} matched episodes with same seeds"
+    )
 
     # Load metadata for CL feature values
-    metadata_path: Path = RESULTS_DIR / f"metadata_{env_name}_{person}.json"
+    metadata_path: Path = RESULTS_DIR / f"metadata_{env_name}_{subject}.json"
     metadata: dict | None = None
     if metadata_path.exists():
         with open(metadata_path, "r") as f:
             metadata = json.load(f)
-        print(f"  Loaded metadata with {metadata['num_test_episodes']} test episodes")
+        print(
+            f"  Loaded metadata with {metadata['num_test_episodes']} test episodes"
+        )
     else:
         print(f"  Warning: No metadata file found at {metadata_path}")
         print(f"  Models with CL features will use default values (0.0, 0.0)")
@@ -438,22 +468,26 @@ def evaluate_all_methods(
     norm_run: float = 0.0
     if metadata and metadata["test_episode_info"]:
         test_eps: list[dict] = metadata["test_episode_info"]
-        norm_session = float(np.median([ep["norm_session"] for ep in test_eps]))
+        norm_session = float(
+            np.median([ep["norm_session"] for ep in test_eps])
+        )
         norm_run = float(np.median([ep["norm_run"] for ep in test_eps]))
-        print(f"  Using median test CL features: session={norm_session:.3f}, run={norm_run:.3f}")
+        print(
+            f"  Using median test CL features: session={norm_session:.3f}, run={norm_run:.3f}"
+        )
 
     # Create environment
     env: gym.Env = make_env(env_name)
 
-    # Find all checkpoints for this person
-    checkpoint_pattern: str = f"{env_name}_*_{person}_checkpoint.pt"
+    # Find all checkpoints for this subject
+    checkpoint_pattern: str = f"{env_name}_*_{subject}_checkpoint.pt"
     checkpoint_files: list[Path] = list(RESULTS_DIR.glob(checkpoint_pattern))
 
     if not checkpoint_files:
-        print(f"  No checkpoints found for {env_name} ({person})")
+        print(f"  No checkpoints found for {env_name} ({subject})")
         return {
             "env_name": env_name,
-            "person": person,
+            "subject": subject,
             "human_stats": human_stats,
             "model_stats": {},
             "comparisons": {},
@@ -465,10 +499,10 @@ def evaluate_all_methods(
     # Load both versions (with and without CL features)
     print(f"  Loading test data for checkpoint evaluation...")
     _, _, test_obs_no_cl, test_act_no_cl, _ = load_human_data(
-        env_name, use_cl_info=False, person=person, holdout_pct=0.1
+        env_name, use_cl_info=False, subject=subject, holdout_pct=0.1
     )
     _, _, test_obs_with_cl, test_act_with_cl, _ = load_human_data(
-        env_name, use_cl_info=True, person=person, holdout_pct=0.1
+        env_name, use_cl_info=True, subject=subject, holdout_pct=0.1
     )
 
     model_stats: dict[str, dict] = {}
@@ -478,10 +512,9 @@ def evaluate_all_methods(
     for checkpoint_path in checkpoint_files:
         # Extract method name from filename
         # e.g., "cartpole_SGD_with_cl_max_checkpoint.pt" -> "SGD_with_cl"
-        method_name: str = (
-            checkpoint_path.stem.replace(f"{env_name}_", "")
-            .replace(f"_{person}_checkpoint", "")
-        )
+        method_name: str = checkpoint_path.stem.replace(
+            f"{env_name}_", ""
+        ).replace(f"_{subject}_checkpoint", "")
 
         print(f"\n  Evaluating {method_name}...")
 
@@ -511,7 +544,13 @@ def evaluate_all_methods(
             # Evaluate with CL features if needed
             if use_cl_info:
                 stats: dict = evaluate_model_returns(
-                    model, env, episode_details, max_steps, render, norm_session, norm_run
+                    model,
+                    env,
+                    episode_details,
+                    max_steps,
+                    render,
+                    norm_session,
+                    norm_run,
                 )
             else:
                 stats: dict = evaluate_model_returns(
@@ -523,13 +562,18 @@ def evaluate_all_methods(
             comparison: dict = compare_returns(human_stats, stats, method_name)
             comparisons[method_name] = comparison
 
-            print(f"    Mean return: {stats['mean_return']:.2f} ± {stats['std_return']:.2f}")
-            print(f"    Diff from human: {comparison['mean_diff']:.2f} ({comparison['mean_diff_pct']:.1f}%)")
+            print(
+                f"    Mean return: {stats['mean_return']:.2f} ± {stats['std_return']:.2f}"
+            )
+            print(
+                f"    Diff from human: {comparison['mean_diff']:.2f} ({comparison['mean_diff_pct']:.1f}%)"
+            )
             print(f"    p-value: {comparison['u_pvalue']:.4f}")
 
         except Exception as e:
             print(f"    Error evaluating {method_name}: {e}")
             import traceback
+
             traceback.print_exc()
             continue
 
@@ -537,7 +581,7 @@ def evaluate_all_methods(
 
     return {
         "env_name": env_name,
-        "person": person,
+        "subject": subject,
         "human_stats": human_stats,
         "model_stats": model_stats,
         "comparisons": comparisons,

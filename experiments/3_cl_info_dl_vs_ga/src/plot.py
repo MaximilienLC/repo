@@ -81,89 +81,151 @@ def plot_cl_impact(eval_results: dict, save_path: Path | None = None) -> None:
     colors_no_cl: list = []
     colors_with_cl: list = []
     for base in base_names:
-        color = base_method_colors.get(base, colors_palette[7])  # Gray fallback
+        color = base_method_colors.get(
+            base, colors_palette[7]
+        )  # Gray fallback
         colors_no_cl.append(color)
         colors_with_cl.append(color)
 
     # Plot bars
     bars1 = ax.bar(
-        x_pos - width/2, no_cl_means, width, yerr=no_cl_stds,
-        label='Without CL Info', color=colors_no_cl, alpha=0.8, capsize=5,
-        edgecolor='black', linewidth=1.5
+        x_pos - width / 2,
+        no_cl_means,
+        width,
+        yerr=no_cl_stds,
+        label="Without CL Info",
+        color=colors_no_cl,
+        alpha=0.8,
+        capsize=5,
+        edgecolor="black",
+        linewidth=1.5,
     )
     bars2 = ax.bar(
-        x_pos + width/2, with_cl_means, width, yerr=with_cl_stds,
-        label='With CL Info', color=colors_with_cl, alpha=0.8, capsize=5,
-        edgecolor='black', linewidth=1.5
+        x_pos + width / 2,
+        with_cl_means,
+        width,
+        yerr=with_cl_stds,
+        label="With CL Info",
+        color=colors_with_cl,
+        alpha=0.8,
+        capsize=5,
+        edgecolor="black",
+        linewidth=1.5,
     )
 
     # Apply hatch patterns: with_cl gets hatching, no_cl is solid
     for bar in bars2:
-        bar.set_hatch('///')
+        bar.set_hatch("///")
 
     # Add perfect match baseline (0%)
-    ax.axhline(y=0, color='#2ecc71', linestyle='--', linewidth=2, label='Perfect Match (0%)')
+    ax.axhline(
+        y=0,
+        color="#2ecc71",
+        linestyle="--",
+        linewidth=2,
+        label="Perfect Match (0%)",
+    )
 
     # Add value labels and improvement indicators
-    for i, (base, no_cl_mean, with_cl_mean) in enumerate(zip(base_names, no_cl_means, with_cl_means)):
+    for i, (base, no_cl_mean, with_cl_mean) in enumerate(
+        zip(base_names, no_cl_means, with_cl_means)
+    ):
         # Value labels with appropriate positioning for positive/negative values
-        for mean_val, x_offset in [(no_cl_mean, -width/2), (with_cl_mean, width/2)]:
+        for mean_val, x_offset in [
+            (no_cl_mean, -width / 2),
+            (with_cl_mean, width / 2),
+        ]:
             if mean_val >= 0:
                 ax.text(
-                    x_pos[i] + x_offset, mean_val, f"{mean_val:+.1f}%",
-                    ha='center', va='bottom', fontsize=10
+                    x_pos[i] + x_offset,
+                    mean_val,
+                    f"{mean_val:+.1f}%",
+                    ha="center",
+                    va="bottom",
+                    fontsize=10,
                 )
             else:
                 ax.text(
-                    x_pos[i] + x_offset, mean_val, f"{mean_val:+.1f}%",
-                    ha='center', va='top', fontsize=10
+                    x_pos[i] + x_offset,
+                    mean_val,
+                    f"{mean_val:+.1f}%",
+                    ha="center",
+                    va="top",
+                    fontsize=10,
                 )
 
         # Improvement indicator: getting closer to 0% is better
         abs_no_cl: float = abs(no_cl_mean)
         abs_with_cl: float = abs(with_cl_mean)
-        improvement_to_zero: float = abs_no_cl - abs_with_cl  # Positive = improvement
+        improvement_to_zero: float = (
+            abs_no_cl - abs_with_cl
+        )  # Positive = improvement
 
         # Arrow showing change
-        if abs(no_cl_mean - with_cl_mean) > 0.1:  # Only show if meaningful difference
+        if (
+            abs(no_cl_mean - with_cl_mean) > 0.1
+        ):  # Only show if meaningful difference
             ax.annotate(
-                '',
-                xy=(x_pos[i] + width/2, with_cl_mean),
-                xytext=(x_pos[i] - width/2, no_cl_mean),
-                arrowprops=dict(arrowstyle='->', color='black', lw=1.5, alpha=0.5)
+                "",
+                xy=(x_pos[i] + width / 2, with_cl_mean),
+                xytext=(x_pos[i] - width / 2, no_cl_mean),
+                arrowprops=dict(
+                    arrowstyle="->", color="black", lw=1.5, alpha=0.5
+                ),
             )
 
             # Label with improvement metric (reduction in absolute difference)
-            max_y: float = max(abs(no_cl_mean) + no_cl_stds[i], abs(with_cl_mean) + with_cl_stds[i])
+            max_y: float = max(
+                abs(no_cl_mean) + no_cl_stds[i],
+                abs(with_cl_mean) + with_cl_stds[i],
+            )
             symbol: str = "✓" if improvement_to_zero > 0 else "✗"
             ax.text(
-                x_pos[i], max_y + 2,
+                x_pos[i],
+                max_y + 2,
                 f"{symbol} {abs(improvement_to_zero):.1f}pp",
-                ha='center', va='bottom', fontsize=10, fontweight='bold',
-                color='green' if improvement_to_zero > 0 else 'red'
+                ha="center",
+                va="bottom",
+                fontsize=10,
+                fontweight="bold",
+                color="green" if improvement_to_zero > 0 else "red",
             )
 
     # Formatting
     ax.set_xticks(x_pos)
-    ax.set_xticklabels([format_method_name(b) for b in base_names], fontsize=12)
-    ax.set_ylabel('Mean % Difference from Human (per episode)', fontsize=13)
+    ax.set_xticklabels(
+        [format_method_name(b) for b in base_names], fontsize=12
+    )
+    ax.set_ylabel("Mean % Difference from Human (per episode)", fontsize=13)
     ax.set_title(
-        f'Impact of CL Information - {env_name.capitalize()}\n'
-        f'(✓/✗ shows change in absolute deviation, pp = percentage points)',
-        fontsize=14, fontweight='bold'
+        f"Impact of CL Information - {env_name.capitalize()}\n"
+        f"(✓/✗ shows change in absolute deviation, pp = percentage points)",
+        fontsize=14,
+        fontweight="bold",
     )
 
     # Custom legend
     from matplotlib.patches import Patch
+
     legend_elements = [
-        Patch(facecolor='#2ecc71', edgecolor='black', alpha=0.3, label='Perfect Match (0%)'),
-        Patch(facecolor=colors_palette[0], edgecolor='black', label='SGD'),
-        Patch(facecolor=colors_palette[5], edgecolor='black', label='GA'),
-        Patch(facecolor='white', edgecolor='black', hatch='///', label='With CL Info'),
-        Patch(facecolor='white', edgecolor='black', label='Without CL Info'),
+        Patch(
+            facecolor="#2ecc71",
+            edgecolor="black",
+            alpha=0.3,
+            label="Perfect Match (0%)",
+        ),
+        Patch(facecolor=colors_palette[0], edgecolor="black", label="SGD"),
+        Patch(facecolor=colors_palette[5], edgecolor="black", label="GA"),
+        Patch(
+            facecolor="white",
+            edgecolor="black",
+            hatch="///",
+            label="With CL Info",
+        ),
+        Patch(facecolor="white", edgecolor="black", label="Without CL Info"),
     ]
-    ax.legend(handles=legend_elements, fontsize=11, loc='best')
-    ax.grid(True, alpha=0.3, axis='y')
+    ax.legend(handles=legend_elements, fontsize=11, loc="best")
+    ax.grid(True, alpha=0.3, axis="y")
 
     plt.tight_layout()
 
@@ -195,10 +257,16 @@ def create_comparison_table(eval_results: dict) -> None:
 
     # Human baseline
     print(f"\nHuman Baseline ({human_stats['num_episodes']} episodes):")
-    print(f"  Mean Return: {human_stats['mean_return']:8.2f} ± {human_stats['std_return']:.2f}")
+    print(
+        f"  Mean Return: {human_stats['mean_return']:8.2f} ± {human_stats['std_return']:.2f}"
+    )
     print(f"  Median:      {human_stats['median_return']:8.2f}")
-    print(f"  Range:       [{human_stats['min_return']:.2f}, {human_stats['max_return']:.2f}]")
-    print(f"  Q25-Q75:     [{human_stats['q25_return']:.2f}, {human_stats['q75_return']:.2f}]")
+    print(
+        f"  Range:       [{human_stats['min_return']:.2f}, {human_stats['max_return']:.2f}]"
+    )
+    print(
+        f"  Q25-Q75:     [{human_stats['q25_return']:.2f}, {human_stats['q75_return']:.2f}]"
+    )
     print(f"  Mean Length: {human_stats['mean_length']:8.1f} steps")
 
     if not model_stats:
@@ -228,7 +296,11 @@ def create_comparison_table(eval_results: dict) -> None:
         std_pct_diff: float = stats["std_pct_diff"]
         abs_pct_diff: float = abs(mean_pct_diff)
         pvalue: float = comp["u_pvalue"]
-        sig: str = "***" if comp["significant_001"] else ("**" if comp["significant_005"] else "")
+        sig: str = (
+            "***"
+            if comp["significant_001"]
+            else ("**" if comp["significant_005"] else "")
+        )
 
         print(
             f"{display_name:<25} | {mean_pct_diff:>+11.2f}% | {std_pct_diff:>11.2f}% | "
@@ -258,16 +330,27 @@ def create_comparison_table(eval_results: dict) -> None:
             base_methods[base]["no_cl"] = stats
 
     if base_methods:
-        print(f"\n{'Base Method':<20} | {'No CL % Diff':>13} | {'With CL % Diff':>15} | {'Improvement':>15} | {'Better?':>10}")
+        print(
+            f"\n{'Base Method':<20} | {'No CL % Diff':>13} | {'With CL % Diff':>15} | {'Improvement':>15} | {'Better?':>10}"
+        )
         print(f"{'-'*100}")
 
         for base in sorted(base_methods.keys()):
-            if "no_cl" in base_methods[base] and "with_cl" in base_methods[base]:
-                no_cl_pct_diff: float = base_methods[base]["no_cl"]["mean_pct_diff"]
-                with_cl_pct_diff: float = base_methods[base]["with_cl"]["mean_pct_diff"]
+            if (
+                "no_cl" in base_methods[base]
+                and "with_cl" in base_methods[base]
+            ):
+                no_cl_pct_diff: float = base_methods[base]["no_cl"][
+                    "mean_pct_diff"
+                ]
+                with_cl_pct_diff: float = base_methods[base]["with_cl"][
+                    "mean_pct_diff"
+                ]
 
                 # Improvement: reduction in absolute deviation from 0
-                abs_improvement: float = abs(no_cl_pct_diff) - abs(with_cl_pct_diff)
+                abs_improvement: float = abs(no_cl_pct_diff) - abs(
+                    with_cl_pct_diff
+                )
 
                 better: str = "✓ Yes" if abs_improvement > 0 else "✗ No"
 
@@ -281,7 +364,9 @@ def create_comparison_table(eval_results: dict) -> None:
     print(f"\n{'='*100}\n")
 
 
-def plot_progression_over_time(env_name: str, person: str = "max", save_path: Path | None = None) -> None:
+def plot_progression_over_time(
+    env_name: str, subject: str = "sub01", save_path: Path | None = None
+) -> None:
     """Plot progression of mean % difference from human over optimization time.
 
     Loads checkpoints and plots how each method's similarity to human behavior
@@ -289,14 +374,14 @@ def plot_progression_over_time(env_name: str, person: str = "max", save_path: Pa
 
     Args:
         env_name: Environment name
-        person: Person identifier (max, yann)
+        subject: Subject identifier (sub01, sub02)
         save_path: Optional path to save plot
     """
     import torch
     from src.config import RESULTS_DIR
 
-    # Find all checkpoint files for this environment and person
-    checkpoint_pattern: str = f"{env_name}_*_{person}_checkpoint.pt"
+    # Find all checkpoint files for this environment and subject
+    checkpoint_pattern: str = f"{env_name}_*_{subject}_checkpoint.pt"
     checkpoint_files: list[Path] = list(RESULTS_DIR.glob(checkpoint_pattern))
 
     if not checkpoint_files:
@@ -307,28 +392,42 @@ def plot_progression_over_time(env_name: str, person: str = "max", save_path: Pa
     progression_data: dict[str, list[dict]] = {}
 
     for checkpoint_file in checkpoint_files:
-        # Extract method name from filename: env_name_METHOD_person_checkpoint.pt
+        # Extract method name from filename: env_name_METHOD_subject_checkpoint.pt
         filename_parts: list[str] = checkpoint_file.stem.split("_")
-        # Remove env_name, person, and "checkpoint" to get method name
-        # Format: env_method1_method2_..._person_checkpoint
-        method_name: str = "_".join(filename_parts[1:-2])  # Everything between env and person
+        # Remove env_name, subject, and "checkpoint" to get method name
+        # Format: env_method1_method2_..._subject_checkpoint
+        method_name: str = "_".join(
+            filename_parts[1:-2]
+        )  # Everything between env and subject
 
         try:
-            checkpoint: dict = torch.load(checkpoint_file, weights_only=False, map_location="cpu")
-            prog_history: list[dict] = checkpoint.get("progression_history", [])
+            checkpoint: dict = torch.load(
+                checkpoint_file, weights_only=False, map_location="cpu"
+            )
+            prog_history: list[dict] = checkpoint.get(
+                "progression_history", []
+            )
             optim_time: float | None = checkpoint.get("optim_time")
 
             if prog_history and optim_time is not None:
                 # Calculate runtime_pct for each entry
                 for entry in prog_history:
-                    entry["runtime_pct"] = (entry["elapsed_time"] / optim_time) * 100.0
+                    entry["runtime_pct"] = (
+                        entry["elapsed_time"] / optim_time
+                    ) * 100.0
 
                 progression_data[method_name] = prog_history
-                print(f"  Loaded {len(prog_history)} progression points for {method_name}")
+                print(
+                    f"  Loaded {len(prog_history)} progression points for {method_name}"
+                )
             elif not prog_history:
-                print(f"  No progression history in checkpoint for {method_name}")
+                print(
+                    f"  No progression history in checkpoint for {method_name}"
+                )
             elif optim_time is None:
-                print(f"  No optim_time in checkpoint for {method_name}, skipping")
+                print(
+                    f"  No optim_time in checkpoint for {method_name}, skipping"
+                )
         except Exception as e:
             print(f"  Error loading {checkpoint_file}: {e}")
 
@@ -356,9 +455,15 @@ def plot_progression_over_time(env_name: str, person: str = "max", save_path: Pa
         prog_history: list[dict] = progression_data[method_name]
 
         # Extract data
-        runtime_pcts: list[float] = [entry["runtime_pct"] for entry in prog_history]
-        mean_pct_diffs: list[float] = [entry["mean_pct_diff"] for entry in prog_history]
-        std_pct_diffs: list[float] = [entry.get("std_pct_diff", 0.0) for entry in prog_history]
+        runtime_pcts: list[float] = [
+            entry["runtime_pct"] for entry in prog_history
+        ]
+        mean_pct_diffs: list[float] = [
+            entry["mean_pct_diff"] for entry in prog_history
+        ]
+        std_pct_diffs: list[float] = [
+            entry.get("std_pct_diff", 0.0) for entry in prog_history
+        ]
 
         # Convert to numpy arrays for arithmetic
         runtime_pcts_arr: np.ndarray = np.array(runtime_pcts)
@@ -377,7 +482,9 @@ def plot_progression_over_time(env_name: str, person: str = "max", save_path: Pa
             has_cl = None
 
         # Get color for this base method (default to gray if unknown)
-        color = base_method_colors.get(base_method, colors_palette[7])  # Gray fallback
+        color = base_method_colors.get(
+            base_method, colors_palette[7]
+        )  # Gray fallback
 
         # Store method info for legend
         label: str = format_method_name(method_name)
@@ -389,33 +496,48 @@ def plot_progression_over_time(env_name: str, person: str = "max", save_path: Pa
             mean_pct_diffs_arr - std_pct_diffs_arr,
             mean_pct_diffs_arr + std_pct_diffs_arr,
             color=color,
-            alpha=0.15
+            alpha=0.15,
         )
 
         if has_cl:
             # For with_cl: plot black solid line first, then dashed colored line on top
             # Black underlay (no label)
             ax.plot(
-                runtime_pcts, mean_pct_diffs,
-                marker='o', markersize=6, linewidth=2.5,
-                color='black', linestyle='-', alpha=0.8
+                runtime_pcts,
+                mean_pct_diffs,
+                marker="o",
+                markersize=6,
+                linewidth=2.5,
+                color="black",
+                linestyle="-",
+                alpha=0.8,
             )
             # Colored dashed overlay (no label - will create custom legend)
             ax.plot(
-                runtime_pcts, mean_pct_diffs,
-                marker='o', markersize=6, linewidth=2.5,
-                color=color, linestyle='--', alpha=0.8
+                runtime_pcts,
+                mean_pct_diffs,
+                marker="o",
+                markersize=6,
+                linewidth=2.5,
+                color=color,
+                linestyle="--",
+                alpha=0.8,
             )
         else:
             # For no_cl: solid colored line (no label - will create custom legend)
             ax.plot(
-                runtime_pcts, mean_pct_diffs,
-                marker='o', markersize=6, linewidth=2.5,
-                color=color, linestyle='-', alpha=0.8
+                runtime_pcts,
+                mean_pct_diffs,
+                marker="o",
+                markersize=6,
+                linewidth=2.5,
+                color=color,
+                linestyle="-",
+                alpha=0.8,
             )
 
     # Perfect match line
-    ax.axhline(y=0, color='green', linestyle='--', linewidth=2, alpha=0.7)
+    ax.axhline(y=0, color="green", linestyle="--", linewidth=2, alpha=0.7)
 
     # Create custom legend with styling that reflects CL pattern
     from matplotlib.lines import Line2D
@@ -428,39 +550,51 @@ def plot_progression_over_time(env_name: str, person: str = "max", save_path: Pa
         if has_cl:
             # CL methods: dashed line to match the visual overlay
             handle = Line2D(
-                [], [],
-                marker='o', markersize=6, linewidth=2.5,
-                color=color, linestyle='--', alpha=0.8
+                [],
+                [],
+                marker="o",
+                markersize=6,
+                linewidth=2.5,
+                color=color,
+                linestyle="--",
+                alpha=0.8,
             )
         else:
             # Non-CL methods: solid line
             handle = Line2D(
-                [], [],
-                marker='o', markersize=6, linewidth=2.5,
-                color=color, linestyle='-', alpha=0.8
+                [],
+                [],
+                marker="o",
+                markersize=6,
+                linewidth=2.5,
+                color=color,
+                linestyle="-",
+                alpha=0.8,
             )
         legend_handles.append(handle)
         legend_labels.append(label)
 
     # Add perfect match line
     perfect_match_handle = Line2D(
-        [], [],
-        color='green', linestyle='--', linewidth=2, alpha=0.7
+        [], [], color="green", linestyle="--", linewidth=2, alpha=0.7
     )
     legend_handles.append(perfect_match_handle)
-    legend_labels.append('Perfect Match (0%)')
+    legend_labels.append("Perfect Match (0%)")
 
     # Formatting
-    ax.set_xlabel('Optimization Progress (% of max runtime)', fontsize=13)
-    ax.set_ylabel('Mean % Difference from Human (per episode)', fontsize=13)
+    ax.set_xlabel("Optimization Progress (% of max runtime)", fontsize=13)
+    ax.set_ylabel("Mean % Difference from Human (per episode)", fontsize=13)
     ax.set_title(
-        f'Optimization Progression: Model vs Human Similarity - {env_name.capitalize()}\n'
-        f'(Closer to 0% = Better match to human behavior)',
-        fontsize=14, fontweight='bold'
+        f"Optimization Progression: Model vs Human Similarity - {env_name.capitalize()}\n"
+        f"(Closer to 0% = Better match to human behavior)",
+        fontsize=14,
+        fontweight="bold",
     )
     ax.set_xlim(0, 100)
     ax.grid(True, alpha=0.3)
-    ax.legend(handles=legend_handles, labels=legend_labels, fontsize=11, loc='best')
+    ax.legend(
+        handles=legend_handles, labels=legend_labels, fontsize=11, loc="best"
+    )
 
     plt.tight_layout()
 
@@ -475,7 +609,9 @@ def plot_progression_over_time(env_name: str, person: str = "max", save_path: Pa
     plt.close(fig)
 
 
-def plot_optimization_progress(env_name: str, person: str = "max", save_path: Path | None = None) -> None:
+def plot_optimization_progress(
+    env_name: str, subject: str = "sub01", save_path: Path | None = None
+) -> None:
     """Plot optimization progress curves showing test loss and F1 over time.
 
     Creates 3 subplots similar to experiment 2:
@@ -485,15 +621,15 @@ def plot_optimization_progress(env_name: str, person: str = "max", save_path: Pa
 
     Args:
         env_name: Environment name
-        person: Person identifier (max, yann)
+        subject: Subject identifier (sub01, sub02)
         save_path: Optional path to save plot
     """
     import json
     from matplotlib.ticker import LogLocator, LogFormatter
     from src.config import RESULTS_DIR
 
-    # Load all JSON result files for this environment and person
-    result_pattern: str = f"{env_name}_*_{person}.json"
+    # Load all JSON result files for this environment and subject
+    result_pattern: str = f"{env_name}_*_{subject}.json"
     result_files: list[Path] = list(RESULTS_DIR.glob(result_pattern))
 
     if not result_files:
@@ -503,10 +639,12 @@ def plot_optimization_progress(env_name: str, person: str = "max", save_path: Pa
     # Load results from JSON files
     results: dict[str, dict] = {}
     for result_file in result_files:
-        # Extract method name from filename: env_name_METHOD_person.json
+        # Extract method name from filename: env_name_METHOD_subject.json
         filename_parts: list[str] = result_file.stem.split("_")
-        # Remove env_name and person to get method name
-        method_name: str = "_".join(filename_parts[1:-1])  # Everything between env and person
+        # Remove env_name and subject to get method name
+        method_name: str = "_".join(
+            filename_parts[1:-1]
+        )  # Everything between env and subject
 
         try:
             with open(result_file, "r") as f:
@@ -536,7 +674,9 @@ def plot_optimization_progress(env_name: str, person: str = "max", save_path: Pa
         parsed_methods[method_name] = (base_method, has_cl)
 
     # Create color mapping for base methods
-    unique_base_methods: list[str] = sorted(set(base for base, _ in parsed_methods.values()))
+    unique_base_methods: list[str] = sorted(
+        set(base for base, _ in parsed_methods.values())
+    )
     colors_palette = plt.cm.tab10(np.linspace(0, 1, 10))
     color_map: dict[str, tuple] = {
         "SGD": colors_palette[0],  # Blue
@@ -549,9 +689,9 @@ def plot_optimization_progress(env_name: str, person: str = "max", save_path: Pa
 
     # Line styles based on CL status
     line_styles: dict[bool | None, str] = {
-        False: "-",   # solid for no_cl
-        True: "--",   # dashed for with_cl
-        None: "-",    # solid for undefined
+        False: "-",  # solid for no_cl
+        True: "--",  # dashed for with_cl
+        None: "-",  # solid for undefined
     }
 
     # Create figure with 3 subplots
@@ -573,12 +713,18 @@ def plot_optimization_progress(env_name: str, person: str = "max", save_path: Pa
             original_data: np.ndarray = np.array(data["test_loss"])
             if len(original_data) > 100:
                 # Interpolate to get exactly 100 evenly-spaced points
-                x_original: np.ndarray = np.linspace(0, 100, len(original_data))
+                x_original: np.ndarray = np.linspace(
+                    0, 100, len(original_data)
+                )
                 x_new: np.ndarray = np.linspace(0, 100, 100)
-                downsampled_data: np.ndarray = np.interp(x_new, x_original, original_data)
+                downsampled_data: np.ndarray = np.interp(
+                    x_new, x_original, original_data
+                )
                 runtime_pct: np.ndarray = x_new
             else:
-                runtime_pct: np.ndarray = np.linspace(0, 100, len(original_data))
+                runtime_pct: np.ndarray = np.linspace(
+                    0, 100, len(original_data)
+                )
                 downsampled_data: np.ndarray = original_data
 
             ax1.plot(
@@ -599,7 +745,8 @@ def plot_optimization_progress(env_name: str, person: str = "max", save_path: Pa
     ax1.grid(True, alpha=0.3)
     # Add line style explanation
     ax1.text(
-        0.5, 0.02,
+        0.5,
+        0.02,
         "— No CL  - - With CL",
         transform=ax1.transAxes,
         fontsize=8,
@@ -620,12 +767,18 @@ def plot_optimization_progress(env_name: str, person: str = "max", save_path: Pa
             # Downsample to exactly 100 points
             original_data: np.ndarray = np.array(data["f1"])
             if len(original_data) > 100:
-                x_original: np.ndarray = np.linspace(0, 100, len(original_data))
+                x_original: np.ndarray = np.linspace(
+                    0, 100, len(original_data)
+                )
                 x_new: np.ndarray = np.linspace(0, 100, 100)
-                downsampled_data: np.ndarray = np.interp(x_new, x_original, original_data)
+                downsampled_data: np.ndarray = np.interp(
+                    x_new, x_original, original_data
+                )
                 runtime_pct: np.ndarray = x_new
             else:
-                runtime_pct: np.ndarray = np.linspace(0, 100, len(original_data))
+                runtime_pct: np.ndarray = np.linspace(
+                    0, 100, len(original_data)
+                )
                 downsampled_data: np.ndarray = original_data
 
             ax2.plot(
@@ -646,7 +799,8 @@ def plot_optimization_progress(env_name: str, person: str = "max", save_path: Pa
     ax2.grid(True, alpha=0.3)
     # Add line style explanation
     ax2.text(
-        0.5, 0.02,
+        0.5,
+        0.02,
         "— No CL  - - With CL",
         transform=ax2.transAxes,
         fontsize=8,
@@ -698,14 +852,22 @@ def plot_optimization_progress(env_name: str, person: str = "max", save_path: Pa
 
         # Plot bars
         bars1 = ax3.bar(
-            x_positions - bar_width/2, no_cl_errors, bar_width,
-            label="No CL", color=bar_colors_no_cl,
-            edgecolor="black", linewidth=1.0,
+            x_positions - bar_width / 2,
+            no_cl_errors,
+            bar_width,
+            label="No CL",
+            color=bar_colors_no_cl,
+            edgecolor="black",
+            linewidth=1.0,
         )
         bars2 = ax3.bar(
-            x_positions + bar_width/2, with_cl_errors, bar_width,
-            label="With CL", color=bar_colors_with_cl,
-            edgecolor="black", linewidth=1.0,
+            x_positions + bar_width / 2,
+            with_cl_errors,
+            bar_width,
+            label="With CL",
+            color=bar_colors_with_cl,
+            edgecolor="black",
+            linewidth=1.0,
         )
 
         # Apply hatch pattern to with_cl bars
@@ -735,13 +897,21 @@ def plot_optimization_progress(env_name: str, person: str = "max", save_path: Pa
 
         # Set x-axis labels
         ax3.set_xticks(x_positions)
-        display_names: list[str] = [format_method_name(m) for m in sorted_base_methods]
-        ax3.set_xticklabels(display_names, rotation=45, ha="right", fontsize=10)
+        display_names: list[str] = [
+            format_method_name(m) for m in sorted_base_methods
+        ]
+        ax3.set_xticklabels(
+            display_names, rotation=45, ha="right", fontsize=10
+        )
         ax3.set_ylabel("Final Macro F1 Error", fontsize=12)
-        ax3.set_title("Final Performance Comparison", fontsize=13, fontweight="bold")
+        ax3.set_title(
+            "Final Performance Comparison", fontsize=13, fontweight="bold"
+        )
         ax3.set_yscale("log")
         ax3.yaxis.set_major_locator(LogLocator(base=10.0, subs=[1.0]))
-        ax3.yaxis.set_major_formatter(LogFormatter(base=10.0, labelOnlyBase=False))
+        ax3.yaxis.set_major_formatter(
+            LogFormatter(base=10.0, labelOnlyBase=False)
+        )
         ax3.legend(loc="best", fontsize=10)
         ax3.grid(True, alpha=0.3, axis="y")
 
@@ -751,7 +921,9 @@ def plot_optimization_progress(env_name: str, person: str = "max", save_path: Pa
         plt.savefig(save_path, dpi=150, bbox_inches="tight")
         print(f"  Optimization progress plot saved to {save_path}")
     else:
-        default_path: Path = PLOTS_DIR / f"optimization_progress_{env_name}.png"
+        default_path: Path = (
+            PLOTS_DIR / f"optimization_progress_{env_name}.png"
+        )
         plt.savefig(default_path, dpi=150, bbox_inches="tight")
         print(f"  Optimization progress plot saved to {default_path}")
 
@@ -767,10 +939,10 @@ def create_all_plots(eval_results: dict) -> None:
     print("\nGenerating evaluation plots...")
 
     env_name: str = eval_results["env_name"]
-    person: str = eval_results.get("person", "max")
+    subject: str = eval_results.get("subject", "sub01")
 
     plot_cl_impact(eval_results)
-    plot_progression_over_time(env_name, person)
-    plot_optimization_progress(env_name, person)
+    plot_progression_over_time(env_name, subject)
+    plot_optimization_progress(env_name, subject)
 
     print("All plots generated successfully!")

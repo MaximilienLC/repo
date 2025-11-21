@@ -50,14 +50,16 @@ def evaluate_progression(
 
             # Reset with seed
             obs, _ = env.reset(seed=seed)
-            obs_tensor: Float[Tensor, " obs_dim"] = torch.from_numpy(obs).float().to(config.DEVICE)
+            obs_tensor: Float[Tensor, " obs_dim"] = (
+                torch.from_numpy(obs).float().to(config.DEVICE)
+            )
 
             # Append CL features if provided in episode details
             if use_cl_features:
                 cl_features: Float[Tensor, " 2"] = torch.tensor(
                     [ep_detail["norm_session"], ep_detail["norm_run"]],
                     dtype=torch.float32,
-                    device=config.DEVICE
+                    device=config.DEVICE,
                 )
                 obs_tensor = torch.cat([obs_tensor, cl_features])
 
@@ -89,7 +91,9 @@ def evaluate_progression(
 
             # Calculate percentage difference: (model - human) / human * 100
             if human_return != 0:
-                pct_diff: float = ((total_return - human_return) / abs(human_return)) * 100
+                pct_diff: float = (
+                    (total_return - human_return) / abs(human_return)
+                ) * 100
             else:
                 # If human got 0 return, use absolute difference
                 pct_diff = total_return * 100
@@ -111,12 +115,14 @@ def deeplearn(
     exp_config: ExperimentConfig,
     env_name: str,
     method_name: str,
-    person: str = "max",
+    subject: str = "sub01",
     track_progression: bool = True,
     ckpt_and_behav_eval_interval_seconds: int | None = None,
 ) -> tuple[list[float], list[float]]:
     """Deep Learning (SGD) optimization."""
-    model: MLP = MLP(input_size, exp_config.hidden_size, output_size).to(config.DEVICE)
+    model: MLP = MLP(input_size, exp_config.hidden_size, output_size).to(
+        config.DEVICE
+    )
     optimizer: torch.optim.SGD = torch.optim.SGD(model.parameters(), lr=1e-3)
 
     optim_dataset: TensorDataset = TensorDataset(optim_obs, optim_act)
@@ -124,7 +130,9 @@ def deeplearn(
         optim_dataset, batch_size=exp_config.batch_size, shuffle=True
     )
 
-    test_obs_gpu: Float[Tensor, "test_size input_size"] = test_obs.to(config.DEVICE)
+    test_obs_gpu: Float[Tensor, "test_size input_size"] = test_obs.to(
+        config.DEVICE
+    )
     test_act_gpu: Int[Tensor, " test_size"] = test_act.to(config.DEVICE)
 
     loss_history: list[float] = []
@@ -134,7 +142,9 @@ def deeplearn(
 
     # Use config default if not specified
     if ckpt_and_behav_eval_interval_seconds is None:
-        ckpt_and_behav_eval_interval_seconds = exp_config.ckpt_and_behav_eval_interval_seconds
+        ckpt_and_behav_eval_interval_seconds = (
+            exp_config.ckpt_and_behav_eval_interval_seconds
+        )
 
     # Setup progression tracking if enabled
     episode_details: list[dict] | None = None
@@ -147,8 +157,10 @@ def deeplearn(
         from .environment import make_env, get_max_episode_steps
         from .evaluation import load_human_episode_details
 
-        print(f"  Checkpoint & behaviour evaluation enabled (every {ckpt_and_behav_eval_interval_seconds}s)")
-        episode_details = load_human_episode_details(env_name, person)
+        print(
+            f"  Checkpoint & behaviour evaluation enabled (every {ckpt_and_behav_eval_interval_seconds}s)"
+        )
+        episode_details = load_human_episode_details(env_name, subject)
         eval_env = make_env(env_name)
         max_steps = get_max_episode_steps(env_name)
 
@@ -157,7 +169,9 @@ def deeplearn(
         use_cl_features_flag = input_size > env_obs_dim
 
     # Checkpointing paths
-    checkpoint_path: Path = RESULTS_DIR / f"{env_name}_{method_name}_{person}_checkpoint.pt"
+    checkpoint_path: Path = (
+        RESULTS_DIR / f"{env_name}_{method_name}_{subject}_checkpoint.pt"
+    )
 
     # Try to resume from checkpoint
     start_epoch: int = 0
@@ -174,7 +188,9 @@ def deeplearn(
 
         # Update last checkpoint/eval time based on loaded history
         if progression_history and track_progression:
-            last_elapsed: float = progression_history[-1].get("elapsed_time", 0.0)
+            last_elapsed: float = progression_history[-1].get(
+                "elapsed_time", 0.0
+            )
             last_ckpt_eval_time = last_elapsed
 
         print(f"  Resumed at epoch {start_epoch}")
@@ -185,7 +201,9 @@ def deeplearn(
     # Initialize time tracking for loss evaluations
     # Set to negative value to ensure first check triggers at the very beginning
     last_eval_time: float = -exp_config.loss_eval_interval_seconds
-    print(f"  Optimizing for {exp_config.max_optim_time} seconds ({exp_config.max_optim_time/60:.1f} minutes)...")
+    print(
+        f"  Optimizing for {exp_config.max_optim_time} seconds ({exp_config.max_optim_time/60:.1f} minutes)..."
+    )
 
     while True:
         # Check time limit
@@ -197,7 +215,9 @@ def deeplearn(
         epoch_losses: list[float] = []
 
         for batch_obs, batch_act in optim_loader:
-            batch_obs_gpu: Float[Tensor, "BS input_size"] = batch_obs.to(config.DEVICE)
+            batch_obs_gpu: Float[Tensor, "BS input_size"] = batch_obs.to(
+                config.DEVICE
+            )
             batch_act_gpu: Int[Tensor, " BS"] = batch_act.to(config.DEVICE)
 
             optimizer.zero_grad()
@@ -245,19 +265,32 @@ def deeplearn(
                     "test_loss": test_loss_history,
                     "f1": f1_history,
                 },
-                person,
+                subject,
             )
 
         # Checkpoint and behaviour evaluation combined (time-based)
-        if elapsed - last_ckpt_eval_time >= ckpt_and_behav_eval_interval_seconds:
+        if (
+            elapsed - last_ckpt_eval_time
+            >= ckpt_and_behav_eval_interval_seconds
+        ):
             # Run behaviour evaluation if enabled
-            if track_progression and episode_details is not None and eval_env is not None:
+            if (
+                track_progression
+                and episode_details is not None
+                and eval_env is not None
+            ):
                 print(f"    Running behaviour evaluation at {elapsed:.0f}s...")
                 mean_pct_diff: float
                 std_pct_diff: float
                 model_returns: list[float]
-                mean_pct_diff, std_pct_diff, model_returns = evaluate_progression(
-                    model, episode_details, eval_env, max_steps, use_cl_features_flag
+                mean_pct_diff, std_pct_diff, model_returns = (
+                    evaluate_progression(
+                        model,
+                        episode_details,
+                        eval_env,
+                        max_steps,
+                        use_cl_features_flag,
+                    )
                 )
                 progression_entry: dict = {
                     "elapsed_time": elapsed,
@@ -269,7 +302,9 @@ def deeplearn(
                     "f1": f1,
                 }
                 progression_history.append(progression_entry)
-                print(f"    Mean % diff from human: {mean_pct_diff:+.2f}% ± {std_pct_diff:.2f}%")
+                print(
+                    f"    Mean % diff from human: {mean_pct_diff:+.2f}% ± {std_pct_diff:.2f}%"
+                )
 
             # Save checkpoint
             checkpoint_data: dict = {
@@ -289,7 +324,9 @@ def deeplearn(
 
     # Final checkpoint save
     total_time: float = time.time() - start_time
-    print(f"  Optimization complete: {epoch} epochs in {total_time:.1f}s ({total_time/60:.1f} minutes)")
+    print(
+        f"  Optimization complete: {epoch} epochs in {total_time:.1f}s ({total_time/60:.1f} minutes)"
+    )
     checkpoint_data = {
         "epoch": epoch,
         "loss_history": loss_history,
@@ -320,14 +357,18 @@ def neuroevolve(
     exp_config: ExperimentConfig,
     env_name: str,
     method_name: str,
-    person: str = "max",
+    subject: str = "sub01",
     track_progression: bool = True,
     ckpt_and_behav_eval_interval_seconds: int | None = None,
 ) -> tuple[list[float], list[float]]:
     """Neuroevolution optimization with batched GPU operations."""
-    optim_obs_gpu: Float[Tensor, "optim_size input_size"] = optim_obs.to(config.DEVICE)
+    optim_obs_gpu: Float[Tensor, "optim_size input_size"] = optim_obs.to(
+        config.DEVICE
+    )
     optim_act_gpu: Int[Tensor, " optim_size"] = optim_act.to(config.DEVICE)
-    test_obs_gpu: Float[Tensor, "test_size input_size"] = test_obs.to(config.DEVICE)
+    test_obs_gpu: Float[Tensor, "test_size input_size"] = test_obs.to(
+        config.DEVICE
+    )
     test_act_gpu: Int[Tensor, " test_size"] = test_act.to(config.DEVICE)
 
     # Sample a subset for fitness evaluation
@@ -350,7 +391,9 @@ def neuroevolve(
 
     # Use config default if not specified
     if ckpt_and_behav_eval_interval_seconds is None:
-        ckpt_and_behav_eval_interval_seconds = exp_config.ckpt_and_behav_eval_interval_seconds
+        ckpt_and_behav_eval_interval_seconds = (
+            exp_config.ckpt_and_behav_eval_interval_seconds
+        )
 
     # Setup progression tracking if enabled
     episode_details: list[dict] | None = None
@@ -363,8 +406,10 @@ def neuroevolve(
         from .environment import make_env, get_max_episode_steps
         from .evaluation import load_human_episode_details
 
-        print(f"  Checkpoint & behaviour evaluation enabled (every {ckpt_and_behav_eval_interval_seconds}s)")
-        episode_details = load_human_episode_details(env_name, person)
+        print(
+            f"  Checkpoint & behaviour evaluation enabled (every {ckpt_and_behav_eval_interval_seconds}s)"
+        )
+        episode_details = load_human_episode_details(env_name, subject)
         eval_env = make_env(env_name)
         max_steps = get_max_episode_steps(env_name)
 
@@ -373,7 +418,9 @@ def neuroevolve(
         use_cl_features_flag = input_size > env_obs_dim
 
     # Checkpointing paths
-    checkpoint_path: Path = RESULTS_DIR / f"{env_name}_{method_name}_{person}_checkpoint.pt"
+    checkpoint_path: Path = (
+        RESULTS_DIR / f"{env_name}_{method_name}_{subject}_checkpoint.pt"
+    )
 
     # Try to resume from checkpoint
     start_gen: int = 0
@@ -396,7 +443,9 @@ def neuroevolve(
 
         # Update last checkpoint/eval time based on loaded history
         if progression_history and track_progression:
-            last_elapsed: float = progression_history[-1].get("elapsed_time", 0.0)
+            last_elapsed: float = progression_history[-1].get(
+                "elapsed_time", 0.0
+            )
             last_ckpt_eval_time = last_elapsed
 
         print(f"  Resumed at generation {start_gen}")
@@ -407,7 +456,9 @@ def neuroevolve(
     # Initialize time tracking for loss evaluations
     # Set to negative value to ensure first check triggers at the very beginning
     last_eval_time: float = -exp_config.loss_eval_interval_seconds
-    print(f"  Optimizing for {exp_config.max_optim_time} seconds ({exp_config.max_optim_time/60:.1f} minutes)...")
+    print(
+        f"  Optimizing for {exp_config.max_optim_time} seconds ({exp_config.max_optim_time/60:.1f} minutes)..."
+    )
 
     while True:
         # Check time limit
@@ -422,13 +473,17 @@ def neuroevolve(
         batch_obs: Float[Tensor, "eval_batch_size input_size"] = optim_obs_gpu[
             batch_indices
         ]
-        batch_act: Int[Tensor, " eval_batch_size"] = optim_act_gpu[batch_indices]
+        batch_act: Int[Tensor, " eval_batch_size"] = optim_act_gpu[
+            batch_indices
+        ]
 
         # Mutation
         population.mutate()
 
         # Evaluation (batched on GPU)
-        fitness: Float[Tensor, " pop_size"] = population.evaluate(batch_obs, batch_act)
+        fitness: Float[Tensor, " pop_size"] = population.evaluate(
+            batch_obs, batch_act
+        )
 
         # Selection (vectorized)
         population.select_simple_ga(fitness)
@@ -471,19 +526,32 @@ def neuroevolve(
                     "test_loss": test_loss_history,
                     "f1": f1_history,
                 },
-                person,
+                subject,
             )
 
         # Checkpoint and behaviour evaluation combined (time-based)
-        if elapsed - last_ckpt_eval_time >= ckpt_and_behav_eval_interval_seconds:
+        if (
+            elapsed - last_ckpt_eval_time
+            >= ckpt_and_behav_eval_interval_seconds
+        ):
             # Run behaviour evaluation if enabled
-            if track_progression and episode_details is not None and eval_env is not None:
+            if (
+                track_progression
+                and episode_details is not None
+                and eval_env is not None
+            ):
                 print(f"    Running behaviour evaluation at {elapsed:.0f}s...")
                 mean_pct_diff: float
                 std_pct_diff: float
                 model_returns: list[float]
-                mean_pct_diff, std_pct_diff, model_returns = evaluate_progression(
-                    best_net, episode_details, eval_env, max_steps, use_cl_features_flag
+                mean_pct_diff, std_pct_diff, model_returns = (
+                    evaluate_progression(
+                        best_net,
+                        episode_details,
+                        eval_env,
+                        max_steps,
+                        use_cl_features_flag,
+                    )
                 )
                 progression_entry: dict = {
                     "elapsed_time": elapsed,
@@ -495,7 +563,9 @@ def neuroevolve(
                     "f1": f1,
                 }
                 progression_history.append(progression_entry)
-                print(f"    Mean % diff from human: {mean_pct_diff:+.2f}% ± {std_pct_diff:.2f}%")
+                print(
+                    f"    Mean % diff from human: {mean_pct_diff:+.2f}% ± {std_pct_diff:.2f}%"
+                )
 
             # Save checkpoint
             checkpoint_data: dict = {
@@ -514,7 +584,9 @@ def neuroevolve(
 
     # Final checkpoint save
     total_time: float = time.time() - start_time
-    print(f"  Optimization complete: {gen} generations in {total_time:.1f}s ({total_time/60:.1f} minutes)")
+    print(
+        f"  Optimization complete: {gen} generations in {total_time:.1f}s ({total_time/60:.1f} minutes)"
+    )
     best_net = population.create_best_mlp(fitness)
     checkpoint_data = {
         "generation": gen,

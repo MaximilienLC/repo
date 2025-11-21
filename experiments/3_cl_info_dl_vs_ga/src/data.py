@@ -12,7 +12,9 @@ from torch import Tensor
 from .config import DATA_DIR, ENV_CONFIGS, get_data_file
 
 
-def compute_session_run_ids(timestamps: list[str]) -> tuple[list[int], list[int]]:
+def compute_session_run_ids(
+    timestamps: list[str],
+) -> tuple[list[int], list[int]]:
     """Compute session and run IDs from episode timestamps.
 
     A new session begins if >= 30 minutes have passed since the previous episode.
@@ -28,9 +30,7 @@ def compute_session_run_ids(timestamps: list[str]) -> tuple[list[int], list[int]
         return [], []
 
     # Parse all timestamps
-    dt_list: list[datetime] = [
-        datetime.fromisoformat(ts) for ts in timestamps
-    ]
+    dt_list: list[datetime] = [datetime.fromisoformat(ts) for ts in timestamps]
 
     session_ids: list[int] = []
     run_ids: list[int] = []
@@ -84,7 +84,9 @@ def normalize_session_run_features(
     num_sessions: int = len(unique_sessions)
 
     if num_sessions == 1:
-        normalized_sessions: np.ndarray = np.zeros(len(session_arr), dtype=np.float32)
+        normalized_sessions: np.ndarray = np.zeros(
+            len(session_arr), dtype=np.float32
+        )
     else:
         # Map sessions to [-1, 1] with equal spacing
         session_to_normalized: dict[int, float] = {
@@ -119,7 +121,10 @@ def normalize_session_run_features(
 
 
 def load_human_data(
-    env_name: str, use_cl_info: bool, person: str = "max", holdout_pct: float = 0.1
+    env_name: str,
+    use_cl_info: bool,
+    subject: str = "sub01",
+    holdout_pct: float = 0.1,
 ) -> tuple[
     Float[Tensor, "optim_size input_size"],
     Int[Tensor, " optim_size"],
@@ -132,7 +137,7 @@ def load_human_data(
     Args:
         env_name: Environment name (cartpole, mountaincar, acrobot, lunarlander)
         use_cl_info: Whether to include session/run features in observations
-        person: Person identifier (max, yann)
+        subject: Subject identifier (sub01, sub02)
         holdout_pct: Percentage of runs to randomly hold out for testing
 
     Returns:
@@ -145,10 +150,10 @@ def load_human_data(
             - num_test_episodes: number of episodes in test set
     """
     env_config: dict = ENV_CONFIGS[env_name]
-    data_filename: str = get_data_file(env_name, person)
+    data_filename: str = get_data_file(env_name, subject)
     data_file: Path = DATA_DIR / data_filename
 
-    print(f"  Loading {person}'s data from {data_file}...")
+    print(f"  Loading {subject}'s data from {data_file}...")
 
     # Load JSON
     with open(data_file, "r") as f:
@@ -268,7 +273,9 @@ def load_human_data(
                     "return": episode_return,
                     "session_id": session_ids[ep_idx],
                     "run_id": run_ids[ep_idx],
-                    "norm_session": ep_norm_sessions[0],  # Same for all steps in episode
+                    "norm_session": ep_norm_sessions[
+                        0
+                    ],  # Same for all steps in episode
                     "norm_run": ep_norm_runs[0],
                     "num_steps": num_steps,
                     "timestamp": episode["timestamp"],
@@ -277,7 +284,9 @@ def load_human_data(
 
         step_idx += num_steps
 
-    print(f"  Optim steps: {len(optim_observations)}, Test steps: {len(test_observations)}")
+    print(
+        f"  Optim steps: {len(optim_observations)}, Test steps: {len(test_observations)}"
+    )
 
     # Convert to numpy arrays
     optim_obs_np: np.ndarray = np.array(optim_observations, dtype=np.float32)
@@ -288,10 +297,18 @@ def load_human_data(
     # Optionally concatenate CL features
     if use_cl_info:
         optim_cl: np.ndarray = np.stack(
-            [np.array(optim_norm_sessions, dtype=np.float32), np.array(optim_norm_runs, dtype=np.float32)], axis=1
+            [
+                np.array(optim_norm_sessions, dtype=np.float32),
+                np.array(optim_norm_runs, dtype=np.float32),
+            ],
+            axis=1,
         )
         test_cl: np.ndarray = np.stack(
-            [np.array(test_norm_sessions, dtype=np.float32), np.array(test_norm_runs, dtype=np.float32)], axis=1
+            [
+                np.array(test_norm_sessions, dtype=np.float32),
+                np.array(test_norm_runs, dtype=np.float32),
+            ],
+            axis=1,
         )
 
         optim_obs_np = np.concatenate([optim_obs_np, optim_cl], axis=1)
@@ -302,9 +319,13 @@ def load_human_data(
         )
 
     # Convert to tensors
-    optim_obs: Float[Tensor, "optim_size input_size"] = torch.from_numpy(optim_obs_np)
+    optim_obs: Float[Tensor, "optim_size input_size"] = torch.from_numpy(
+        optim_obs_np
+    )
     optim_act: Int[Tensor, " optim_size"] = torch.from_numpy(optim_act_np)
-    test_obs: Float[Tensor, "test_size input_size"] = torch.from_numpy(test_obs_np)
+    test_obs: Float[Tensor, "test_size input_size"] = torch.from_numpy(
+        test_obs_np
+    )
     test_act: Int[Tensor, " test_size"] = torch.from_numpy(test_act_np)
 
     # Create metadata dictionary

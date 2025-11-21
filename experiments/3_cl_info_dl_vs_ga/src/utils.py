@@ -51,16 +51,18 @@ def set_random_seeds(seed: int = 42) -> None:
     torch.backends.cudnn.benchmark = False
 
 
-def save_results(env_name: str, method_name: str, data: dict, person: str = "max") -> None:
+def save_results(
+    env_name: str, method_name: str, data: dict, subject: str = "sub01"
+) -> None:
     """Save results to JSON file with file locking.
 
     Args:
         env_name: Environment name
         method_name: Method identifier
         data: Dictionary of results to save
-        person: Person identifier
+        subject: Subject identifier
     """
-    file_path: Path = RESULTS_DIR / f"{env_name}_{method_name}_{person}.json"
+    file_path: Path = RESULTS_DIR / f"{env_name}_{method_name}_{subject}.json"
     lock_path: Path = file_path.with_suffix(".lock")
     lock = filelock.FileLock(lock_path, timeout=10)
 

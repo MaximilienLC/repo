@@ -54,8 +54,8 @@ class ExperimentConfig:
 ENV_CONFIGS: dict[str, dict] = {
     "cartpole": {
         "data_files": {
-            "max": "data_cartpole.json",
-            "yann": "yann_data_cartpole.json",
+            "sub01": "data_cartpole.json",
+            "sub02": "yann_data_cartpole.json",
         },
         "obs_dim": 4,
         "action_dim": 2,
@@ -63,8 +63,8 @@ ENV_CONFIGS: dict[str, dict] = {
     },
     "mountaincar": {
         "data_files": {
-            "max": "data_mountaincar.json",
-            "yann": "yann_data_mountaincar.json",
+            "sub01": "data_mountaincar.json",
+            "sub02": "yann_data_mountaincar.json",
         },
         "obs_dim": 2,
         "action_dim": 3,
@@ -72,8 +72,8 @@ ENV_CONFIGS: dict[str, dict] = {
     },
     "acrobot": {
         "data_files": {
-            "max": "data_acrobot.json",
-            "yann": "yann_data_acrobot.json",
+            "sub01": "data_acrobot.json",
+            "sub02": "yann_data_acrobot.json",
         },
         "obs_dim": 6,
         "action_dim": 3,
@@ -81,8 +81,8 @@ ENV_CONFIGS: dict[str, dict] = {
     },
     "lunarlander": {
         "data_files": {
-            "max": "data_lunarlander.json",
-            "yann": "yann_data_lunarlander.json",
+            "sub01": "data_lunarlander.json",
+            "sub02": "yann_data_lunarlander.json",
         },
         "obs_dim": 8,
         "action_dim": 4,
@@ -91,29 +91,29 @@ ENV_CONFIGS: dict[str, dict] = {
 }
 
 
-def get_data_file(env_name: str, person: str) -> str:
-    """Get data filename for environment and person.
+def get_data_file(env_name: str, subject: str) -> str:
+    """Get data filename for environment and subject.
 
     Args:
         env_name: Environment name
-        person: Person identifier (max, yann)
+        subject: Subject identifier (sub01, sub02)
 
     Returns:
         Data filename
 
     Raises:
-        ValueError: If environment or person not found
+        ValueError: If environment or subject not found
     """
     if env_name not in ENV_CONFIGS:
         raise ValueError(f"Unknown environment: {env_name}")
 
     env_config: dict = ENV_CONFIGS[env_name]
 
-    if person not in env_config["data_files"]:
+    if subject not in env_config["data_files"]:
         available_people: list[str] = list(env_config["data_files"].keys())
         raise ValueError(
-            f"No data for person '{person}' in environment '{env_name}'. "
+            f"No data for subject '{subject}' in environment '{env_name}'. "
             f"Available: {available_people}"
         )
 
-    return env_config["data_files"][person]
+    return env_config["data_files"][subject]

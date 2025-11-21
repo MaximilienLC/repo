@@ -22,7 +22,7 @@ usage() {
     echo "Options:"
     echo "  -e, --env ENV      Run specific environment(s): cartpole, mountaincar, acrobot, lunarlander, or 'all'"
     echo "                     Can specify multiple environments separated by commas (e.g., cartpole,lunarlander)"
-    echo "  -p, --person NAME  Person whose data to use: max or yann (default: max)"
+    echo "  -p, --subject ID   Subject whose data to use: sub01 or sub02 (default: sub01)"
     echo "  --plot             Run plotting mode instead of optimization (generates plots from saved checkpoints)"
     echo "  -h, --help         Show this help message"
     echo ""
@@ -30,7 +30,7 @@ usage() {
     echo "  $0                              # Optimize all environments (default)"
     echo "  $0 --env cartpole               # Optimize only CartPole experiments"
     echo "  $0 --env cartpole,acrobot       # Optimize CartPole and Acrobot experiments"
-    echo "  $0 --person yann                # Optimize using Yann's data"
+    echo "  $0 --subject sub02              # Optimize using sub02's data"
     echo "  $0 --env cartpole --plot        # Generate plots for CartPole models"
     echo ""
     echo "After optimization completes, generate plots with:"
@@ -40,7 +40,7 @@ usage() {
 
 # Parse command line arguments
 SELECTED_ENVS="all"
-PERSON="max"
+SUBJECT="sub01"
 PLOT_MODE=false
 
 while [[ $# -gt 0 ]]; do
@@ -49,8 +49,8 @@ while [[ $# -gt 0 ]]; do
             SELECTED_ENVS="$2"
             shift 2
             ;;
-        -p|--person)
-            PERSON="$2"
+        -p|--subject)
+            SUBJECT="$2"
             shift 2
             ;;
         --plot)
@@ -90,38 +90,38 @@ declare -A env_commands
 # If in plot mode, run plotting instead of optimization
 if [ "$PLOT_MODE" = true ]; then
     # Plotting mode - just generate plots for each selected environment
-    env_commands["cartpole"]="python -u main.py --dataset cartpole --person $PERSON --plot"
-    env_commands["mountaincar"]="python -u main.py --dataset mountaincar --person $PERSON --plot"
-    env_commands["acrobot"]="python -u main.py --dataset acrobot --person $PERSON --plot"
-    env_commands["lunarlander"]="python -u main.py --dataset lunarlander --person $PERSON --plot"
+    env_commands["cartpole"]="python -u main.py --dataset cartpole --subject $SUBJECT --plot"
+    env_commands["mountaincar"]="python -u main.py --dataset mountaincar --subject $SUBJECT --plot"
+    env_commands["acrobot"]="python -u main.py --dataset acrobot --subject $SUBJECT --plot"
+    env_commands["lunarlander"]="python -u main.py --dataset lunarlander --subject $SUBJECT --plot"
 else
     # Optimization mode - launch all 4 method variants per environment
     env_commands["cartpole"]="
-python -u main.py --dataset cartpole --method SGD --person $PERSON --gpu 0
-python -u main.py --dataset cartpole --method SGD --use-cl-info --person $PERSON --gpu 0
-python -u main.py --dataset cartpole --method adaptive_ga_CE --person $PERSON --gpu 0
-python -u main.py --dataset cartpole --method adaptive_ga_CE --use-cl-info --person $PERSON --gpu 0
+python -u main.py --dataset cartpole --method SGD --subject $SUBJECT --gpu 0
+python -u main.py --dataset cartpole --method SGD --use-cl-info --subject $SUBJECT --gpu 0
+python -u main.py --dataset cartpole --method adaptive_ga_CE --subject $SUBJECT --gpu 0
+python -u main.py --dataset cartpole --method adaptive_ga_CE --use-cl-info --subject $SUBJECT --gpu 0
 "
 
     env_commands["mountaincar"]="
-python -u main.py --dataset mountaincar --method SGD --person $PERSON --gpu 0
-python -u main.py --dataset mountaincar --method SGD --use-cl-info --person $PERSON --gpu 0
-python -u main.py --dataset mountaincar --method adaptive_ga_CE --person $PERSON --gpu 0
-python -u main.py --dataset mountaincar --method adaptive_ga_CE --use-cl-info --person $PERSON --gpu 0
+python -u main.py --dataset mountaincar --method SGD --subject $SUBJECT --gpu 0
+python -u main.py --dataset mountaincar --method SGD --use-cl-info --subject $SUBJECT --gpu 0
+python -u main.py --dataset mountaincar --method adaptive_ga_CE --subject $SUBJECT --gpu 0
+python -u main.py --dataset mountaincar --method adaptive_ga_CE --use-cl-info --subject $SUBJECT --gpu 0
 "
 
     env_commands["acrobot"]="
-python -u main.py --dataset acrobot --method SGD --person $PERSON --gpu 1
-python -u main.py --dataset acrobot --method SGD --use-cl-info --person $PERSON --gpu 1
-python -u main.py --dataset acrobot --method adaptive_ga_CE --person $PERSON --gpu 1
-python -u main.py --dataset acrobot --method adaptive_ga_CE --use-cl-info --person $PERSON --gpu 1
+python -u main.py --dataset acrobot --method SGD --subject $SUBJECT --gpu 1
+python -u main.py --dataset acrobot --method SGD --use-cl-info --subject $SUBJECT --gpu 1
+python -u main.py --dataset acrobot --method adaptive_ga_CE --subject $SUBJECT --gpu 1
+python -u main.py --dataset acrobot --method adaptive_ga_CE --use-cl-info --subject $SUBJECT --gpu 1
 "
 
     env_commands["lunarlander"]="
-python -u main.py --dataset lunarlander --method SGD --person $PERSON --gpu 1
-python -u main.py --dataset lunarlander --method SGD --use-cl-info --person $PERSON --gpu 1
-python -u main.py --dataset lunarlander --method adaptive_ga_CE --person $PERSON --gpu 1
-python -u main.py --dataset lunarlander --method adaptive_ga_CE --use-cl-info --person $PERSON --gpu 1
+python -u main.py --dataset lunarlander --method SGD --subject $SUBJECT --gpu 1
+python -u main.py --dataset lunarlander --method SGD --use-cl-info --subject $SUBJECT --gpu 1
+python -u main.py --dataset lunarlander --method adaptive_ga_CE --subject $SUBJECT --gpu 1
+python -u main.py --dataset lunarlander --method adaptive_ga_CE --use-cl-info --subject $SUBJECT --gpu 1
 "
 fi
 
@@ -141,9 +141,9 @@ done
 num_sessions=${#commands[@]}
 
 if [ "$PLOT_MODE" = true ]; then
-    echo "Starting $num_sessions tmux plotting session(s) for: $SELECTED_ENVS (person: $PERSON)"
+    echo "Starting $num_sessions tmux plotting session(s) for: $SELECTED_ENVS (subject: $SUBJECT)"
 else
-    echo "Starting $num_sessions tmux optimization sessions for: $SELECTED_ENVS (person: $PERSON)"
+    echo "Starting $num_sessions tmux optimization sessions for: $SELECTED_ENVS (subject: $SUBJECT)"
 fi
 echo ""
 
@@ -156,7 +156,7 @@ for i in "${!commands[@]}"; do
 
     if [ "$PLOT_MODE" = true ]; then
         # Plotting mode - simpler session naming
-        SESSION_ID="${DATASET}_plot_${PERSON}"
+        SESSION_ID="${DATASET}_plot_${SUBJECT}"
     else
         # Optimization mode - include method and CL variant
         # Extract the method name (matches text after --method until the next space)
@@ -170,7 +170,7 @@ for i in "${!commands[@]}"; do
         fi
 
         # Construct the Session ID (e.g., cartpole_SGD_with_cl_max)
-        SESSION_ID="${DATASET}_${METHOD}_${CL_VARIANT}_${PERSON}"
+        SESSION_ID="${DATASET}_${METHOD}_${CL_VARIANT}_${SUBJECT}"
     fi
 
     echo "Launching $SESSION_ID"
@@ -200,5 +200,5 @@ echo "  tmux kill-server                    # Kill all sessions"
 if [ "$PLOT_MODE" = false ]; then
     echo ""
     echo "After optimization completes, generate plots with:"
-    echo "  ./script.sh --env $SELECTED_ENVS --person $PERSON --plot"
+    echo "  ./script.sh --env $SELECTED_ENVS --subject $SUBJECT --plot"
 fi
