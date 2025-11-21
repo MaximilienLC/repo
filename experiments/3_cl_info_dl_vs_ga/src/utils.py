@@ -1,9 +1,14 @@
 """Utility functions for Experiment 3."""
 
+import json
 import random
+from pathlib import Path
 
+import filelock
 import numpy as np
 import torch
+
+from .config import RESULTS_DIR
 
 
 def format_method_name(method_name: str) -> str:
@@ -44,3 +49,21 @@ def set_random_seeds(seed: int = 42) -> None:
     # For deterministic behavior (may impact performance)
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
+
+
+def save_results(env_name: str, method_name: str, data: dict, person: str = "max") -> None:
+    """Save results to JSON file with file locking.
+
+    Args:
+        env_name: Environment name
+        method_name: Method identifier
+        data: Dictionary of results to save
+        person: Person identifier
+    """
+    file_path: Path = RESULTS_DIR / f"{env_name}_{method_name}_{person}.json"
+    lock_path: Path = file_path.with_suffix(".lock")
+    lock = filelock.FileLock(lock_path, timeout=10)
+
+    with lock:
+        with open(file_path, "w") as f:
+            json.dump(data, f)

@@ -7,7 +7,7 @@ from jaxtyping import Float, Int
 from sklearn.metrics import f1_score
 from torch import Tensor
 
-from models import MLP
+from .models import MLP
 
 
 def compute_cross_entropy(

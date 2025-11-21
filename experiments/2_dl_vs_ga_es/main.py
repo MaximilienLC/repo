@@ -24,7 +24,7 @@ from torch.utils.data import DataLoader, TensorDataset
 
 def format_dataset_size(size: int) -> str:
     """Format dataset size as scientific notation (e.g., 100000 -> '1e5')."""
-    if size >= 1000:
+    if size >= 100:
         exponent: int = len(str(size)) - 1
         mantissa: float = size / (10**exponent)
         if mantissa == 1.0:
@@ -291,8 +291,8 @@ def update_plot(dataset_name: str, interactive: bool = False) -> None:
     ax1.grid(True, alpha=0.3)
     # Add line style explanation as text annotation (bottom left)
     ax1.text(
-        0.02,
-        0.02,
+        0.5,  # x: 0.5 represents the horizontal center (50% width)
+        0.02,  # y: 0.02 keeps it just above the bottom edge
         "— 1e5  - - 1e4  -· 1e3  ··· 1e2",
         transform=ax1.transAxes,
         fontsize=8,
@@ -359,8 +359,8 @@ def update_plot(dataset_name: str, interactive: bool = False) -> None:
     ax2.grid(True, alpha=0.3)
     # Add line style explanation as text annotation (bottom left)
     ax2.text(
-        0.02,
-        0.02,
+        0.5,  # x: 0.5 represents the horizontal center (50% width)
+        0.02,  # y: 0.02 keeps it just above the bottom edge
         "— 1e5  - - 1e4  -· 1e3  ··· 1e2",
         transform=ax2.transAxes,
         fontsize=8,

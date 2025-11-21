@@ -6,7 +6,7 @@ import torch.nn.functional as F
 from jaxtyping import Float, Int
 from torch import Tensor
 
-from config import DEVICE
+from . import config
 
 
 class MLP(nn.Module):
@@ -61,16 +61,16 @@ class BatchedPopulation:
         fc2_std: float = (1.0 / hidden_size) ** 0.5
 
         self.fc1_weight: Float[Tensor, "pop_size hidden_size input_size"] = (
-            torch.randn(pop_size, hidden_size, input_size, device=DEVICE) * fc1_std
+            torch.randn(pop_size, hidden_size, input_size, device=config.DEVICE) * fc1_std
         )
         self.fc1_bias: Float[Tensor, "pop_size hidden_size"] = (
-            torch.randn(pop_size, hidden_size, device=DEVICE) * fc1_std
+            torch.randn(pop_size, hidden_size, device=config.DEVICE) * fc1_std
         )
         self.fc2_weight: Float[Tensor, "pop_size output_size hidden_size"] = (
-            torch.randn(pop_size, output_size, hidden_size, device=DEVICE) * fc2_std
+            torch.randn(pop_size, output_size, hidden_size, device=config.DEVICE) * fc2_std
         )
         self.fc2_bias: Float[Tensor, "pop_size output_size"] = (
-            torch.randn(pop_size, output_size, device=DEVICE) * fc2_std
+            torch.randn(pop_size, output_size, device=config.DEVICE) * fc2_std
         )
 
         # Initialize adaptive sigmas
@@ -187,7 +187,7 @@ class BatchedPopulation:
         # Create replacement mapping
         num_losers: int = self.pop_size - num_survivors
         replacement_indices: Int[Tensor, " num_losers"] = survivor_indices[
-            torch.arange(num_losers, device=DEVICE) % num_survivors
+            torch.arange(num_losers, device=config.DEVICE) % num_survivors
         ]
 
         # Full new indices
@@ -210,7 +210,7 @@ class BatchedPopulation:
         """Create an MLP from the best network's parameters."""
         best_idx: int = torch.argmin(fitness).item()  # Minimize CE
 
-        mlp: MLP = MLP(self.input_size, self.hidden_size, self.output_size).to(DEVICE)
+        mlp: MLP = MLP(self.input_size, self.hidden_size, self.output_size).to(config.DEVICE)
         mlp.fc1.weight.data = self.fc1_weight[best_idx]
         mlp.fc1.bias.data = self.fc1_bias[best_idx]
         mlp.fc2.weight.data = self.fc2_weight[best_idx]

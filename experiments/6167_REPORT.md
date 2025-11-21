@@ -232,3 +232,118 @@ We make the following changes from experiment 2:
 - We drop `ES` given its underperformance relative to `GA`, only keep `adaptive GA CE & SGD`.
 - We run ablation experiment: with/without `session` and `run` information.
 - No scaling over dataset size: train on first 90% of data, test on last 10%
+
+##### Data
+
+We use human behavioral data collected from real participants playing 4 environments:
+- **Participants**: max, yann
+- **Environments**: CartPole (4 obs, 2 actions), MountainCar (2 obs, 3 actions), Acrobot (6 obs, 3 actions), LunarLander (8 obs, 4 actions)
+- **Data structure**: Each episode includes timestamps, allowing us to derive session and run information
+  - **Session**: Starts when >30 minutes have passed since previous episode
+  - **Run**: Episode number within a session
+- **Continual Learning features**: Session and run values are normalized to [-1, 1] range within their respective groups
+  - Example: 5 sessions → session values = [-1.0, -0.5, 0.0, 0.5, 1.0]
+  - Example: 3 runs in a session → run values = [-1.0, 0.0, 1.0]
+- **Split**: First 90% for training, last 10% held out for testing (randomly selected, seed=42)
+- **Batch size**: 32
+
+##### Network Setup
+
+Multi-layer perceptron (MLP) architecture:
+- **Input layer**: `obs_dim` (without CL) OR `obs_dim + 2` (with CL features: session, run)
+- **Hidden layer**: 50 units with `tanh` activation
+- **Output layer**: `action_dim` units with softmax for action selection
+
+##### Methods
+
+Two approaches compared in ablation study:
+
+**1. SGD (Deep Learning)**
+- Optimizer: Stochastic Gradient Descent, learning rate 1e-3
+- Loss function: Cross-entropy
+- Training: Time-limited to 1 hour (3600 seconds)
+- Updates: Mini-batch updates with batch size 32
+
+**2. Adaptive GA (Neuroevolution)**
+- Population size: 50 individuals
+- Selection: Top 50% fitness scores are selected and duplicated
+- Mutation: Adaptive per-parameter Gaussian noise
+  - Initial σ = 1e-3 for all parameters
+  - Each generation: σᵢ ×= (1 + ξᵢ) where ξᵢ ~ N(0, 1e-2)
+  - Parameter updates: θᵢ += εᵢ where εᵢ ~ N(0, σᵢ²)
+- Fitness function: Negative cross-entropy (higher = better)
+- Training: Time-limited to 1 hour (3600 seconds)
+- GPU-optimized: Batched evaluations using batch matrix multiplications
+
+**Ablation conditions:**
+- `_no_cl`: Models trained without session/run information (input size = obs_dim)
+- `_with_cl`: Models trained with session/run information (input size = obs_dim + 2)
+
+This yields 4 total configurations: SGD_no_cl, SGD_with_cl, adaptive_ga_CE_no_cl, adaptive_ga_CE_with_cl
+
+##### Evaluation Metrics
+
+Models are evaluated on their ability to replicate human behavior in the actual environments:
+
+**1. Matched Episode Evaluation**
+- Run the same number of episodes as the human participant
+- Use identical random seeds for environment initialization to ensure fair comparison
+- For models with CL features: use median session/run values from test set
+
+**2. Key Metrics**
+- **Mean return**: Average cumulative reward across episodes
+- **Percentage difference from human**: `(model_return - human_return) / |human_return| × 100`
+  - Closer to 0% = better match to human behavior
+  - Positive = model performs better than human
+  - Negative = model performs worse than human
+- **Statistical significance**: Mann-Whitney U test comparing model vs human episode returns
+  - p < 0.001 (***), p < 0.005 (**), otherwise not marked
+
+**3. Test Set Performance**
+- **Macro F1 score**: Evaluation metric for action prediction accuracy on held-out test data
+- **Cross-entropy loss**: Training objective, also measured on test set
+
+##### Plots
+
+Three main visualizations generated for each environment × participant combination:
+
+**1. Aggregate Returns Comparison**
+- Bar chart showing mean percentage difference from human for all 4 methods
+- Sorted by absolute percentage difference (best match first)
+- Error bars show standard deviation across episodes
+- Color coding: Blue for `_with_cl`, Red for `_no_cl`
+- Statistical significance markers (**, ***) shown above bars
+- Lower absolute values = better human behavior replication
+
+**2. CL Impact Comparison**
+- Side-by-side bar chart for each base method (SGD vs adaptive_ga_CE)
+- Direct comparison of `_no_cl` vs `_with_cl` variants
+- Shows percentage difference from human (0% = perfect match)
+- Green dashed line at 0% indicates perfect match baseline
+- Arrows indicate direction of change from no_cl to with_cl
+- ✓/✗ symbols indicate whether adding CL info brought model closer to 0% (improvement)
+- Shows numerical improvement in percentage points (pp)
+
+**3. Return Distributions**
+- Violin plots showing distribution of episode returns
+- Compares human distribution vs each model's distribution
+- Allows visual assessment of whether models capture variance in human behavior
+- Shows both central tendency and spread of performance
+
+##### Training Progress Tracking
+
+Both methods track and save:
+- Training loss history (cross-entropy)
+- Test loss history
+- Macro F1 score history (evaluated periodically)
+- Model checkpoints (support resuming from previous runs)
+
+##### Analysis
+
+*[To be filled after running experiments across all environments and participants]*
+
+Expected insights:
+- Does providing continual learning information (session/run) improve model fit to human behavior?
+- Does the impact of CL information differ between Deep Learning and Neuroevolution?
+- Which environments show the strongest effect of CL information?
+- Do models trained with CL info better capture temporal dynamics of human learning?
