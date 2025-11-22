@@ -54,8 +54,8 @@ class ExperimentConfig:
 ENV_CONFIGS: dict[str, dict] = {
     "cartpole": {
         "data_files": {
-            "sub01": "data_cartpole.json",
-            "sub02": "yann_data_cartpole.json",
+            "sub01": "sub01_data_cartpole.json",
+            "sub02": "sub02_data_cartpole.json",
         },
         "obs_dim": 4,
         "action_dim": 2,
@@ -63,8 +63,8 @@ ENV_CONFIGS: dict[str, dict] = {
     },
     "mountaincar": {
         "data_files": {
-            "sub01": "data_mountaincar.json",
-            "sub02": "yann_data_mountaincar.json",
+            "sub01": "sub01_data_mountaincar.json",
+            "sub02": "sub02_data_mountaincar.json",
         },
         "obs_dim": 2,
         "action_dim": 3,
@@ -72,8 +72,8 @@ ENV_CONFIGS: dict[str, dict] = {
     },
     "acrobot": {
         "data_files": {
-            "sub01": "data_acrobot.json",
-            "sub02": "yann_data_acrobot.json",
+            "sub01": "sub01_data_acrobot.json",
+            "sub02": "sub02_data_acrobot.json",
         },
         "obs_dim": 6,
         "action_dim": 3,
@@ -81,8 +81,8 @@ ENV_CONFIGS: dict[str, dict] = {
     },
     "lunarlander": {
         "data_files": {
-            "sub01": "data_lunarlander.json",
-            "sub02": "yann_data_lunarlander.json",
+            "sub01": "sub01_data_lunarlander.json",
+            "sub02": "sub02_data_lunarlander.json",
         },
         "obs_dim": 8,
         "action_dim": 4,

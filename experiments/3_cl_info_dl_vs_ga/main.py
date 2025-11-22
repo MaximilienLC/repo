@@ -186,7 +186,6 @@ def main() -> None:
         print(f"{'='*60}")
 
         # Load human data
-        from src.data import load_human_data
         from src.evaluation import compare_returns
         import numpy as np
 

@@ -3,10 +3,6 @@
 # Experiment 3: Optimization Script
 # Launches tmux sessions for optimizing all method variants
 #
-# Optimization uses time-based stopping criteria:
-#   - SGD: 1 hour (3600s) by default
-#   - Neuroevolution: 2 hours (7200s) by default
-#
 # Data split: 10% of runs randomly held out per session for testing
 
 # Get the directory where this script is located

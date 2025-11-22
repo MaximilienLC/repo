@@ -175,33 +175,24 @@ def plot_cl_impact(eval_results: dict, save_path: Path | None = None) -> None:
             )
 
             # Label with improvement metric (reduction in absolute difference)
-            max_y: float = max(
-                abs(no_cl_mean) + no_cl_stds[i],
-                abs(with_cl_mean) + with_cl_stds[i],
-            )
+            # Position at bottom of plot
             symbol: str = "✓" if improvement_to_zero > 0 else "✗"
             ax.text(
                 x_pos[i],
-                max_y + 2,
+                ax.get_ylim()[0],
                 f"{symbol} {abs(improvement_to_zero):.1f}pp",
                 ha="center",
-                va="bottom",
+                va="top",
                 fontsize=10,
-                fontweight="bold",
                 color="green" if improvement_to_zero > 0 else "red",
             )
 
     # Formatting
-    ax.set_xticks(x_pos)
-    ax.set_xticklabels(
-        [format_method_name(b) for b in base_names], fontsize=12
-    )
-    ax.set_ylabel("Mean % Difference from Human (per episode)", fontsize=13)
+    ax.set_xticks([])  # Remove x-axis ticks and labels
+    ax.set_ylabel("% Difference from Human (per episode)", fontsize=13)
     ax.set_title(
-        f"Impact of CL Information - {env_name.capitalize()}\n"
-        f"(✓/✗ shows change in absolute deviation, pp = percentage points)",
+        f"End-of-optimization impact of providing CL information - {env_name.capitalize()}",
         fontsize=14,
-        fontweight="bold",
     )
 
     # Custom legend
@@ -212,19 +203,26 @@ def plot_cl_impact(eval_results: dict, save_path: Path | None = None) -> None:
             facecolor="#2ecc71",
             edgecolor="black",
             alpha=0.3,
-            label="Perfect Match (0%)",
+            label="Perfect Match",
         ),
         Patch(facecolor=colors_palette[0], edgecolor="black", label="SGD"),
-        Patch(facecolor=colors_palette[5], edgecolor="black", label="GA"),
         Patch(
-            facecolor="white",
+            facecolor=colors_palette[0],
             edgecolor="black",
             hatch="///",
-            label="With CL Info",
+            label="SGD w/ CL info",
         ),
-        Patch(facecolor="white", edgecolor="black", label="Without CL Info"),
+        Patch(
+            facecolor=colors_palette[5], edgecolor="black", label="Adaptive GA"
+        ),
+        Patch(
+            facecolor=colors_palette[5],
+            edgecolor="black",
+            hatch="///",
+            label="Adaptive GA w/ CL info",
+        ),
     ]
-    ax.legend(handles=legend_elements, fontsize=11, loc="best")
+    ax.legend(handles=legend_elements, fontsize=11, loc="lower center")
     ax.grid(True, alpha=0.3, axis="y")
 
     plt.tight_layout()
@@ -233,7 +231,7 @@ def plot_cl_impact(eval_results: dict, save_path: Path | None = None) -> None:
         plt.savefig(save_path, dpi=150, bbox_inches="tight")
         print(f"  CL impact plot saved to {save_path}")
     else:
-        default_path: Path = PLOTS_DIR / f"eval_cl_impact_{env_name}.png"
+        default_path: Path = PLOTS_DIR / f"cl_impact_{env_name}.png"
         plt.savefig(default_path, dpi=150, bbox_inches="tight")
         print(f"  CL impact plot saved to {default_path}")
 
@@ -465,6 +463,21 @@ def plot_progression_over_time(
             entry.get("std_pct_diff", 0.0) for entry in prog_history
         ]
 
+        # Downsample to max 50 points (including first and last)
+        max_points: int = 50
+        if len(runtime_pcts) > max_points:
+            # Get evenly-spaced indices including first (0) and last (-1)
+            indices: np.ndarray = np.linspace(
+                0, len(runtime_pcts) - 1, max_points
+            )
+            indices = np.round(indices).astype(int)
+            indices = np.unique(indices)  # Ensure uniqueness
+
+            # Subsample the data
+            runtime_pcts = [runtime_pcts[i] for i in indices]
+            mean_pct_diffs = [mean_pct_diffs[i] for i in indices]
+            std_pct_diffs = [std_pct_diffs[i] for i in indices]
+
         # Convert to numpy arrays for arithmetic
         runtime_pcts_arr: np.ndarray = np.array(runtime_pcts)
         mean_pct_diffs_arr: np.ndarray = np.array(mean_pct_diffs)
@@ -490,14 +503,63 @@ def plot_progression_over_time(
         label: str = format_method_name(method_name)
         method_info.append((label, color, has_cl))
 
-        # Plot shaded std region
-        ax.fill_between(
-            runtime_pcts_arr,
-            mean_pct_diffs_arr - std_pct_diffs_arr,
-            mean_pct_diffs_arr + std_pct_diffs_arr,
-            color=color,
-            alpha=0.15,
-        )
+        # Plot std bounds as thin lines
+        if has_cl:
+            # For with_cl: black solid line first, then colored dashed line on top
+            # Upper bound
+            ax.plot(
+                runtime_pcts_arr,
+                mean_pct_diffs_arr + std_pct_diffs_arr,
+                color="black",
+                linestyle="-",
+                linewidth=1.0,
+                alpha=0.5,
+            )
+            ax.plot(
+                runtime_pcts_arr,
+                mean_pct_diffs_arr + std_pct_diffs_arr,
+                color=color,
+                linestyle="--",
+                linewidth=1.0,
+                alpha=0.5,
+            )
+            # Lower bound
+            ax.plot(
+                runtime_pcts_arr,
+                mean_pct_diffs_arr - std_pct_diffs_arr,
+                color="black",
+                linestyle="-",
+                linewidth=1.0,
+                alpha=0.5,
+            )
+            ax.plot(
+                runtime_pcts_arr,
+                mean_pct_diffs_arr - std_pct_diffs_arr,
+                color=color,
+                linestyle="--",
+                linewidth=1.0,
+                alpha=0.5,
+            )
+        else:
+            # For no_cl: solid colored lines
+            # Upper bound
+            ax.plot(
+                runtime_pcts_arr,
+                mean_pct_diffs_arr + std_pct_diffs_arr,
+                color=color,
+                linestyle="-",
+                linewidth=1.0,
+                alpha=0.5,
+            )
+            # Lower bound
+            ax.plot(
+                runtime_pcts_arr,
+                mean_pct_diffs_arr - std_pct_diffs_arr,
+                color=color,
+                linestyle="-",
+                linewidth=1.0,
+                alpha=0.5,
+            )
 
         if has_cl:
             # For with_cl: plot black solid line first, then dashed colored line on top
@@ -545,50 +607,73 @@ def plot_progression_over_time(
     legend_handles: list[Line2D] = []
     legend_labels: list[str] = []
 
-    # Add method entries
-    for label, color, has_cl in method_info:
-        if has_cl:
-            # CL methods: dashed line to match the visual overlay
-            handle = Line2D(
-                [],
-                [],
-                marker="o",
-                markersize=6,
-                linewidth=2.5,
-                color=color,
-                linestyle="--",
-                alpha=0.8,
-            )
-        else:
-            # Non-CL methods: solid line
-            handle = Line2D(
-                [],
-                [],
-                marker="o",
-                markersize=6,
-                linewidth=2.5,
-                color=color,
-                linestyle="-",
-                alpha=0.8,
-            )
-        legend_handles.append(handle)
-        legend_labels.append(label)
-
-    # Add perfect match line
+    # Add perfect match line first
     perfect_match_handle = Line2D(
         [], [], color="green", linestyle="--", linewidth=2, alpha=0.7
     )
     legend_handles.append(perfect_match_handle)
-    legend_labels.append("Perfect Match (0%)")
+    legend_labels.append("Perfect Match")
+
+    # Add SGD methods
+    sgd_handle = Line2D(
+        [],
+        [],
+        marker="o",
+        markersize=6,
+        linewidth=2.5,
+        color=colors_palette[0],
+        linestyle="-",
+        alpha=0.8,
+    )
+    legend_handles.append(sgd_handle)
+    legend_labels.append("SGD")
+
+    sgd_cl_handle = Line2D(
+        [],
+        [],
+        marker="o",
+        markersize=6,
+        linewidth=2.5,
+        color=colors_palette[0],
+        linestyle="--",
+        alpha=0.8,
+    )
+    legend_handles.append(sgd_cl_handle)
+    legend_labels.append("SGD w/ CL info")
+
+    # Add Adaptive GA methods
+    ga_handle = Line2D(
+        [],
+        [],
+        marker="o",
+        markersize=6,
+        linewidth=2.5,
+        color=colors_palette[5],
+        linestyle="-",
+        alpha=0.8,
+    )
+    legend_handles.append(ga_handle)
+    legend_labels.append("Adaptive GA")
+
+    ga_cl_handle = Line2D(
+        [],
+        [],
+        marker="o",
+        markersize=6,
+        linewidth=2.5,
+        color=colors_palette[5],
+        linestyle="--",
+        alpha=0.8,
+    )
+    legend_handles.append(ga_cl_handle)
+    legend_labels.append("Adaptive GA w/ CL info")
 
     # Formatting
-    ax.set_xlabel("Optimization Progress (% of max runtime)", fontsize=13)
-    ax.set_ylabel("Mean % Difference from Human (per episode)", fontsize=13)
+    ax.set_xlabel("Runtime %", fontsize=13)
+    ax.set_ylabel("% Difference from Human (per episode)", fontsize=13)
     ax.set_title(
-        f"Optimization Progression: Model vs Human Similarity - {env_name.capitalize()}\n"
-        f"(Closer to 0% = Better match to human behavior)",
+        f"Behavioural difference over the course of optimization - {env_name.capitalize()}",
         fontsize=14,
-        fontweight="bold",
     )
     ax.set_xlim(0, 100)
     ax.grid(True, alpha=0.3)
@@ -602,7 +687,7 @@ def plot_progression_over_time(
         plt.savefig(save_path, dpi=150, bbox_inches="tight")
         print(f"  Progression plot saved to {save_path}")
     else:
-        default_path: Path = PLOTS_DIR / f"eval_progression_{env_name}.png"
+        default_path: Path = PLOTS_DIR / f"behav_progress_{env_name}.png"
         plt.savefig(default_path, dpi=150, bbox_inches="tight")
         print(f"  Progression plot saved to {default_path}")
 
@@ -727,33 +812,45 @@ def plot_optimization_progress(
                 )
                 downsampled_data: np.ndarray = original_data
 
-            ax1.plot(
-                runtime_pct,
-                downsampled_data,
-                color=color_map[base_method],
-                linestyle=line_styles[has_cl],
-                alpha=0.8,
-                linewidth=2.5,
-            )
+            if has_cl:
+                # For with_cl: plot black solid line first, then dashed colored line on top
+                # Black underlay
+                ax1.plot(
+                    runtime_pct,
+                    downsampled_data,
+                    color="black",
+                    linestyle="-",
+                    alpha=0.8,
+                    linewidth=2.5,
+                )
+                # Colored dashed overlay
+                ax1.plot(
+                    runtime_pct,
+                    downsampled_data,
+                    color=color_map[base_method],
+                    linestyle="--",
+                    alpha=0.8,
+                    linewidth=2.5,
+                )
+            else:
+                # For no_cl: solid colored line
+                ax1.plot(
+                    runtime_pct,
+                    downsampled_data,
+                    color=color_map[base_method],
+                    linestyle="-",
+                    alpha=0.8,
+                    linewidth=2.5,
+                )
 
     ax1.set_xlabel("Runtime %", fontsize=12)
     ax1.set_ylabel("Cross-Entropy Loss", fontsize=12)
-    ax1.set_title("Test Cross-Entropy Loss", fontsize=13, fontweight="bold")
+    ax1.set_title("Cross-Entropy Loss", fontsize=13)
     ax1.set_yscale("log")
     ax1.yaxis.set_major_locator(LogLocator(base=10.0, subs=[1.0]))
     ax1.yaxis.set_major_formatter(LogFormatter(base=10.0))
     ax1.grid(True, alpha=0.3)
     # Add line style explanation
-    ax1.text(
-        0.5,
-        0.02,
-        "— No CL  - - With CL",
-        transform=ax1.transAxes,
-        fontsize=8,
-        horizontalalignment="center",
-        verticalalignment="bottom",
-        bbox=dict(boxstyle="round", facecolor="white", alpha=0.8),
-    )
 
     # Subplot 2: Test Macro F1 Score Curves (all methods)
     ax2 = axes[1]
@@ -781,33 +878,45 @@ def plot_optimization_progress(
                 )
                 downsampled_data: np.ndarray = original_data
 
-            ax2.plot(
-                runtime_pct,
-                downsampled_data,
-                color=color_map[base_method],
-                linestyle=line_styles[has_cl],
-                alpha=0.8,
-                linewidth=2.5,
-            )
+            if has_cl:
+                # For with_cl: plot black solid line first, then dashed colored line on top
+                # Black underlay
+                ax2.plot(
+                    runtime_pct,
+                    downsampled_data,
+                    color="black",
+                    linestyle="-",
+                    alpha=0.8,
+                    linewidth=2.5,
+                )
+                # Colored dashed overlay
+                ax2.plot(
+                    runtime_pct,
+                    downsampled_data,
+                    color=color_map[base_method],
+                    linestyle="--",
+                    alpha=0.8,
+                    linewidth=2.5,
+                )
+            else:
+                # For no_cl: solid colored line
+                ax2.plot(
+                    runtime_pct,
+                    downsampled_data,
+                    color=color_map[base_method],
+                    linestyle="-",
+                    alpha=0.8,
+                    linewidth=2.5,
+                )
 
     ax2.set_xlabel("Runtime %", fontsize=12)
     ax2.set_ylabel("Macro F1 Score", fontsize=12)
-    ax2.set_title("Test Macro F1 Score", fontsize=13, fontweight="bold")
+    ax2.set_title("Macro F1 Score", fontsize=13)
     ax2.set_yscale("log")
     ax2.yaxis.set_major_locator(LogLocator(base=10.0, subs=[1.0]))
     ax2.yaxis.set_major_formatter(LogFormatter(base=10.0))
     ax2.grid(True, alpha=0.3)
     # Add line style explanation
-    ax2.text(
-        0.5,
-        0.02,
-        "— No CL  - - With CL",
-        transform=ax2.transAxes,
-        fontsize=8,
-        horizontalalignment="center",
-        verticalalignment="bottom",
-        bbox=dict(boxstyle="round", facecolor="white", alpha=0.8),
-    )
 
     # Subplot 3: Final Performance Comparison (Grouped Bar Chart)
     ax3 = axes[2]
@@ -887,32 +996,47 @@ def plot_optimization_progress(
                         label: str = f"{val:.2e}"
                     ax3.text(
                         bar.get_x() + bar.get_width() / 2,
-                        bar.get_height() * 1.02,
+                        bar.get_height(),
                         label,
                         ha="center",
                         va="bottom",
-                        fontsize=7,
-                        rotation=90,
+                        fontsize=8,
                     )
 
-        # Set x-axis labels
-        ax3.set_xticks(x_positions)
-        display_names: list[str] = [
-            format_method_name(m) for m in sorted_base_methods
-        ]
-        ax3.set_xticklabels(
-            display_names, rotation=45, ha="right", fontsize=10
-        )
+        # Remove x-axis ticks and labels
+        ax3.set_xticks([])
         ax3.set_ylabel("Final Macro F1 Error", fontsize=12)
-        ax3.set_title(
-            "Final Performance Comparison", fontsize=13, fontweight="bold"
-        )
+        ax3.set_title("Final Macro F1 Error", fontsize=13)
         ax3.set_yscale("log")
         ax3.yaxis.set_major_locator(LogLocator(base=10.0, subs=[1.0]))
         ax3.yaxis.set_major_formatter(
             LogFormatter(base=10.0, labelOnlyBase=False)
         )
-        ax3.legend(loc="best", fontsize=10)
+
+        # Custom legend
+        from matplotlib.patches import Patch
+
+        legend_elements = [
+            Patch(facecolor=colors_palette[0], edgecolor="black", label="SGD"),
+            Patch(
+                facecolor=colors_palette[0],
+                edgecolor="black",
+                hatch="///",
+                label="SGD w/ CL info",
+            ),
+            Patch(
+                facecolor=colors_palette[5],
+                edgecolor="black",
+                label="Adaptive GA",
+            ),
+            Patch(
+                facecolor=colors_palette[5],
+                edgecolor="black",
+                hatch="///",
+                label="Adaptive GA w/ CL info",
+            ),
+        ]
+        ax3.legend(handles=legend_elements, loc="best", fontsize=10)
         ax3.grid(True, alpha=0.3, axis="y")
 
     plt.tight_layout()
@@ -921,9 +1045,7 @@ def plot_optimization_progress(
         plt.savefig(save_path, dpi=150, bbox_inches="tight")
         print(f"  Optimization progress plot saved to {save_path}")
     else:
-        default_path: Path = (
-            PLOTS_DIR / f"optimization_progress_{env_name}.png"
-        )
+        default_path: Path = PLOTS_DIR / f"loss_progress_{env_name}.png"
         plt.savefig(default_path, dpi=150, bbox_inches="tight")
         print(f"  Optimization progress plot saved to {default_path}")
 

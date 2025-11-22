@@ -13,60 +13,58 @@ GAME_CONFIGS = {
     "1": {
         "id": "CartPole-v1",
         "name": "CartPole",
-        "filename": "data_cartpole.json",
+        "filename": "sub01_data_cartpole.json",
         "fps": 15,
         "noop": 0,  # If no key pressed, apply Action 0 (Push Left)
-        "keys": {
-            (pygame.K_LEFT,): 0,
-            (pygame.K_RIGHT,): 1
-        },
-        "help": "Left/Right Arrows to balance."
+        "keys": {(pygame.K_LEFT,): 0, (pygame.K_RIGHT,): 1},
+        "help": "Left/Right Arrows to balance.",
     },
     "2": {
         "id": "MountainCar-v0",
         "name": "MountainCar",
-        "filename": "data_mountaincar.json",
+        "filename": "sub01_data_mountaincar.json",
         "fps": 15,
         "noop": 1,  # If no key pressed, Action 1 is "Coast" (do nothing)
         "keys": {
-            (pygame.K_LEFT,): 0,   # Accelerate Left
+            (pygame.K_LEFT,): 0,  # Accelerate Left
             (pygame.K_RIGHT,): 2,  # Accelerate Right
-            (pygame.K_DOWN,): 1,   # Coast explicitly
+            (pygame.K_DOWN,): 1,  # Coast explicitly
         },
-        "help": "Left/Right to accelerate. Down to coast."
+        "help": "Left/Right to accelerate. Down to coast.",
     },
     "3": {
         "id": "Acrobot-v1",
         "name": "Acrobot",
-        "filename": "data_acrobot.json",
+        "filename": "sub01_data_acrobot.json",
         "fps": 15,
         "noop": 1,  # If no key pressed, Action 1 is "No Torque"
         "keys": {
-            (pygame.K_LEFT,): 0,   # Apply -1 Torque
+            (pygame.K_LEFT,): 0,  # Apply -1 Torque
             (pygame.K_RIGHT,): 2,  # Apply +1 Torque
-            (pygame.K_DOWN,): 1,   # Apply 0 Torque
+            (pygame.K_DOWN,): 1,  # Apply 0 Torque
         },
-        "help": "Swing! Left/Right for torque. Down for neutral."
+        "help": "Swing! Left/Right for torque. Down for neutral.",
     },
     "4": {
         "id": "LunarLander-v3",
         "name": "LunarLander",
-        "filename": "data_lunarlander.json",
+        "filename": "sub01_data_lunarlander.json",
         "fps": 20,
         "noop": 0,  # If no key pressed, Action 0 is "Do Nothing"
         "keys": {
-            (pygame.K_UP,): 2,     # Main Engine
-            (pygame.K_LEFT,): 1,   # Left Engine
+            (pygame.K_UP,): 2,  # Main Engine
+            (pygame.K_LEFT,): 1,  # Left Engine
             (pygame.K_RIGHT,): 3,  # Right Engine
         },
-        "help": "UP: Main Engine. LEFT/RIGHT: Side Engines."
-    }
+        "help": "UP: Main Engine. LEFT/RIGHT: Side Engines.",
+    },
 }
 
 # --- GLOBAL VARS TO BE SET AT RUNTIME ---
 output_filename = ""
 all_episodes = []
 current_episode_steps = []
+
 
 # --- 1. Custom Wrapper ---
 class PausedSeededWrapper(gym.Wrapper):
@@ -112,12 +110,16 @@ class PausedSeededWrapper(gym.Wrapper):
 
 
 # --- 2. The Callback ---
-def save_data_callback(obs_t, obs_tp1, action, rew, terminated, truncated, info):
+def save_data_callback(
+    obs_t, obs_tp1, action, rew, terminated, truncated, info
+):
     global current_episode_steps, all_episodes, output_filename
 
     # Handle Tuple observations
-    if isinstance(obs_t, tuple): obs_t = obs_t[0]
-    if isinstance(obs_tp1, tuple): obs_tp1 = obs_tp1[0]
+    if isinstance(obs_t, tuple):
+        obs_t = obs_t[0]
+    if isinstance(obs_tp1, tuple):
+        obs_tp1 = obs_tp1[0]
 
     step_record = {
         "observation": obs_t.tolist(),
@@ -140,13 +142,15 @@ def save_data_callback(obs_t, obs_tp1, action, rew, terminated, truncated, info)
             "timestamp": env.last_start_time,
             "seed_used": episode_seed,
             "length": len(current_episode_steps),
-            "score": total_score, # Save score for easier analysis
+            "score": total_score,  # Save score for easier analysis
             "steps": list(current_episode_steps),
         }
 
         all_episodes.append(episode_data)
 
-        print(f"Episode {len(all_episodes)-1} finished (Seed {episode_seed}). Score: {total_score:.2f}. Saving to {output_filename}...")
+        print(
+            f"Episode {len(all_episodes)-1} finished (Seed {episode_seed}). Score: {total_score:.2f}. Saving to {output_filename}..."
+        )
 
         try:
             with open(output_filename, "w") as f:
@@ -183,7 +187,9 @@ if os.path.exists(output_filename):
             if len(all_episodes) > 0:
                 last_seed = all_episodes[-1]["seed_used"]
                 start_seed = last_seed + 1
-                print(f"Resuming from Seed {start_seed} (Total episodes: {len(all_episodes)})")
+                print(
+                    f"Resuming from Seed {start_seed} (Total episodes: {len(all_episodes)})"
+                )
             else:
                 print("File empty. Starting Seed 0.")
                 start_seed = 0
@@ -211,7 +217,7 @@ try:
         keys_to_action=selected_config["keys"],
         callback=save_data_callback,
         fps=selected_config["fps"],
-        noop=selected_config["noop"] # Explicit NOOP from config
+        noop=selected_config["noop"],  # Explicit NOOP from config
     )
 except KeyboardInterrupt:
     print("\nStopped by user.")
@@ -220,6 +226,9 @@ except SystemExit:
 except Exception as e:
     print(f"\nAn error occurred: {e}")
     import traceback
-    traceback.print_exc() # Print full error details for debugging
+
+    traceback.print_exc()  # Print full error details for debugging
     if "Box2D" in str(e):
-        print("TIP: For LunarLander, make sure to run: pip install 'gymnasium[box2d]'")
+        print(
+            "TIP: For LunarLander, make sure to run: pip install 'gymnasium[box2d]'"
+        )

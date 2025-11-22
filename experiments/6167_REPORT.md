@@ -1,3 +1,4 @@
+- [Project Proposal](#project-proposal)
 - [Overview](#overview)
   - [Motivation](#motivation)
   - [Neuroevolution](#neuroevolution)
@@ -21,12 +22,71 @@
       - [Results](#results)
   - [2. Modeling continual human behaviour](#2-modeling-continual-human-behaviour)
       - [Experiment 3: On the Value of Giving Continual Learning information](#experiment-3-on-the-value-of-giving-continual-learning-information)
+        - [Data](#data-2)
+        - [Network Setup](#network-setup-2)
+        - [Methods](#methods-1)
+        - [Evaluation Metrics](#evaluation-metrics-1)
+        - [Plots](#plots-2)
+        - [Training Progress Tracking](#training-progress-tracking)
+        - [Analysis](#analysis-1)
+- [Citations](#citations)
+
+# Project Proposal
+
+In this project, we aim to run scaling law analyses — investigations into how key performance metrics evolve as variables like dataset size, model capacity and FLOPs increase — in human behaviour imitation tasks.
+
+More specifically, we aim to perform these analyses on metrics that quantify perfection, i.e. that can saturate. This is somewhat in contrast with typical metrics in the scaling law literature — such as perplexity — that generally do not saturate.
+
+We wish to do so in order to closely observe behaviour at the edge of saturation. Indeed, we hypothesize that several properties of deep learning (DL) harm its ability to accurately model the complexity of human behaviour. We list out some of these properties and their impact:
+
+1. The differentiability constraint.
+DL methods, being gradient-based, can only optimize over differentiable functions - a relatively narrow subspace of computable functions. This constraint demands of practitioners to proxy further from their desired objective, which leads to discrepancies between training success and behavioural fidelity.
+
+2. Data hyperdependency
+DL model updates are fully data-driven, leaving no room for exploration of parameters in non-data space.
+
+3. Data hunger
+DL methods are well-known to require large amounts of data to perform well. Their generalization relies heavily on distributional coverage, leading to overfitting on frequent patterns and poor handling of rare or unseen ones.
+
+4. Lack of causal abstraction
+DL models learn statistical associations rather than (at least not directly) causal structures (Li et al., 2024), limiting their ability to generalize under distributional shifts or to infer intent behind observed behaviour.
+
+5. Overparameterization bias
+While overparameterization aids optimization, it appears to encourage memorization and smooth interpolation over true understanding (Djiré et al., 2025), reducing robustness in low-data or out-of-distribution regimes.
+
+6. Representation entanglement
+Internal representations in deep models are highly distributed and entangled (Kumar et al., 2025), making them harder to interpret or manipulate, and hindering modular reuse of learned components.
+
+We propose to attempt to observe this expected failure to saturate by benchmarking DL methods against genetic algorithms (GAs).
+
+GAs, in contrast, can:
+- optimize over any space of functions which outputs can be ranked
+- incorporate explicit exploration mechanisms (mutation, crossover) that promote discovery beyond data-implied regions
+- have more leeway to evolve modular, interpretable structures that exhibit causal abstraction and reuse
+
+However, GAs' sole reliance on the selection mechanism to propagate information derived from data typically results in less efficient scaling compared to DL's backpropagation. To overcome this limitation, we thus propose to also explore a hybrid approach: leveraging the representational power and information-rich outputs of DL models as inputs to GAs. We hypothesize that this integration will enable us to explore beyond the confines of gradient-based optimization, while still benefiting from its efficiency.
+
+---
+
+We will first wish to look for cases where DL methods are less capable of saturating metrics than GAs. In order to do so, we plan to work our way up from simple 1) environments, e.g. classic control tasks in OpenAI Gym 2) models, e.g. double-layer MLPs and 3) optimization objectives, e.g. output classification; and work our way up to more complexity if needs be.
+
+Metrics will vary on a per-task basis.
+
+When/If we find saturation discrepancies, we plan to then experiment with the hybrid method and observe its behaviour towards saturation relative to both underlying methods.
+
 
 # Overview
 
+Abstract
+Introduction and Motivation
+Problem formulatuon
+Methods
+Experiments
+Conclusion
+
 ## Motivation
 
-Deep Learning methods have pretty much yielded the entirety modern progress in AI. However, we hypothesize that several of its properties (e.g., differentiability constraint, data hyperdependency, data hunger, lack of causal abstraction, overparameterization bias & representation entanglement) make it, standalone, a sub-optimal choice for various tasks. All computational methods have strengths and weaknesses and we believe there is unexplored value to be found in mixing them.
+Deep Learning methods have yielded close to the entirety of modern progress in AI. However, we hypothesize that several of its properties (e.g., differentiability constraint, data hyperdependency, data hunger, lack of causal abstraction, overparameterization bias & representation entanglement) make it, standalone, a sub-optimal choice for various tasks. All computational methods have strengths and weaknesses and we believe there is unexplored value to be found in mixing them.
 
 For instance, we believe Deep Learning-only methods to be sub-optimal for human behaviour cloning (due to its computational complexity), which we focus on in this project.
 
@@ -199,11 +259,11 @@ N/A
 
 ## 2. Modeling continual human behaviour
 
-Human behaviour is not fixed. Compared to the behaviour we have been trying to imitate thus far, it is not a list of frozen weights we can load and rollout hundreds of thousands of time.
+Human behaviour quite complex. Compared to the behaviour we have been trying to imitate thus far, it is not a list of frozen weights we can load and rollout hundreds of thousands of time.
 
 In the second section of this project, we propose to work on modeling the continual behaviour of human subjects.
 
-We asked 3 subjects to perform 4 different virtual tasks/games over the course of several days and collected their data through `@data/collect.py`.
+We asked 2 subjects to perform 4 different virtual tasks/games over the course of several days and collected their data through `@data/collect.py`.
 
 The tasks were:
 - `Acrobot`: Swing a fixed two-link chain left/right to reach a certain height.
@@ -235,8 +295,7 @@ We make the following changes from experiment 2:
 
 ##### Data
 
-We use human behavioral data collected from real participants playing 4 environments:
-- **Participants**: max, yann
+We use human behavioral data collected from our two subjects playing 4 environments:
 - **Environments**: CartPole (4 obs, 2 actions), MountainCar (2 obs, 3 actions), Acrobot (6 obs, 3 actions), LunarLander (8 obs, 4 actions)
 - **Data structure**: Each episode includes timestamps, allowing us to derive session and run information
   - **Session**: Starts when >30 minutes have passed since previous episode
@@ -244,42 +303,15 @@ We use human behavioral data collected from real participants playing 4 environm
 - **Continual Learning features**: Session and run values are normalized to [-1, 1] range within their respective groups
   - Example: 5 sessions → session values = [-1.0, -0.5, 0.0, 0.5, 1.0]
   - Example: 3 runs in a session → run values = [-1.0, 0.0, 1.0]
-- **Split**: First 90% for training, last 10% held out for testing (randomly selected, seed=42)
-- **Batch size**: 32
+- **Split**: Sample, within each session, 90% runs for optimization, 10% runs for testing
 
 ##### Network Setup
 
-Multi-layer perceptron (MLP) architecture:
-- **Input layer**: `obs_dim` (without CL) OR `obs_dim + 2` (with CL features: session, run)
-- **Hidden layer**: 50 units with `tanh` activation
-- **Output layer**: `action_dim` units with softmax for action selection
+Same except input layer: `obs_dim` (without CL) OR `obs_dim + 2` (with CL features: session, run)
 
 ##### Methods
 
-Two approaches compared in ablation study:
-
-**1. SGD (Deep Learning)**
-- Optimizer: Stochastic Gradient Descent, learning rate 1e-3
-- Loss function: Cross-entropy
-- Training: Time-limited to 1 hour (3600 seconds)
-- Updates: Mini-batch updates with batch size 32
-
-**2. Adaptive GA (Neuroevolution)**
-- Population size: 50 individuals
-- Selection: Top 50% fitness scores are selected and duplicated
-- Mutation: Adaptive per-parameter Gaussian noise
-  - Initial σ = 1e-3 for all parameters
-  - Each generation: σᵢ ×= (1 + ξᵢ) where ξᵢ ~ N(0, 1e-2)
-  - Parameter updates: θᵢ += εᵢ where εᵢ ~ N(0, σᵢ²)
-- Fitness function: Negative cross-entropy (higher = better)
-- Training: Time-limited to 1 hour (3600 seconds)
-- GPU-optimized: Batched evaluations using batch matrix multiplications
-
-**Ablation conditions:**
-- `_no_cl`: Models trained without session/run information (input size = obs_dim)
-- `_with_cl`: Models trained with session/run information (input size = obs_dim + 2)
-
-This yields 4 total configurations: SGD_no_cl, SGD_with_cl, adaptive_ga_CE_no_cl, adaptive_ga_CE_with_cl
+SGD & Adaptive Simple GA from above
 
 ##### Evaluation Metrics
 
@@ -347,3 +379,9 @@ Expected insights:
 - Does the impact of CL information differ between Deep Learning and Neuroevolution?
 - Which environments show the strongest effect of CL information?
 - Do models trained with CL info better capture temporal dynamics of human learning?
+
+# Citations
+
+Li et al., 2024: A Survey of Deep Causal Models and Their Industrial Applications
+Djiré et al., 2025: Memorization or Interpolation ? Detecting LLM Memorization through Input Perturbation Analysis
+Kumar et al., 2025: Questioning Representational Optimism in Deep Learning: The Fractured Entangled Representation Hypothesis
